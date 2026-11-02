@@ -66,7 +66,8 @@ export type AcquisitionTabKey =
   | "financing"
   | "progress"
   | "assignees"
-  | "map";
+  | "map"
+  | "survey";
 
 // Нэгж талбарын дэлгэрэнгүйн табууд — parcel/[id]/_components/constants Tab-тай ижил
 export type ParcelTabKey =
@@ -227,6 +228,10 @@ export function canViewAcquisitionTabForActor(
   actor: AccessActor,
   tab: AcquisitionTabKey,
 ): boolean {
+  // «Газрын судалгаа» — нэгж талбарын «Судалгаа» табтай ижил дүрэм.
+  if (tab === "survey") {
+    return !isExternalSpecialActor(actor) && actorHasPermission(actor, "land:read");
+  }
   if (!isExternalSpecialActor(actor)) return true;
   // САНХҮҮГИЙН мэргэжилтэн — "Санхүүжилт" табыг нэмж харна: санхүүжилтийн
   // эх үүсвэр, захирамжийн төсөв, олговрын гүйцэтгэлийн үзүүлэлт нь түүний

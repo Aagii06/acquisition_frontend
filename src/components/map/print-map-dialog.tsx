@@ -2,7 +2,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { toLonLat, transformExtent } from "ol/proj";
-import { Download, ImageIcon, Loader2, RefreshCw, X } from "lucide-react";
+import GeoJSON from "ol/format/GeoJSON";
+import type Polygon from "ol/geom/Polygon";
+import type MultiPolygon from "ol/geom/MultiPolygon";
+import { ChevronDown, Download, ImageIcon, Loader2, RefreshCw, X } from "lucide-react";
 import { landApi, departmentApi } from "@/lib/api";
 import { STATUS_LABELS } from "@/types";
 import type { DroneImage } from "@/types";
@@ -12,9 +15,14 @@ import {
   geoServerName,
   combineCql,
   parcelStatusIdFromLayer,
+  AGREED_GROUP,
+  AGREED_CODE_LAYER_IDS,
+  SEC_GROUP,
+  SEC_CODE_LAYER_IDS,
   type MapLayerId,
 } from "./layers";
 import { useParcelStatusLayers } from "./use-parcel-status-layers";
+import { useParcelStatusRules } from "@/lib/use-parcel-status-rules";
 import {
   PRINT_BOUNDARY_IDS,
   PRINT_STYLES,
@@ -45,6 +53,10 @@ interface PrintSettings {
   orientation: PrintOrientation;
   hiddenLayers: Set<string>;
   drones: Set<string>;
+  /** СОНГОСОН ГУС-ийн дэд давхаргууд (зөвшилцсөн зураг / хамгаалалтын зурвас) */
+  gusLayers: Set<string>;
+  /** Эцсийн бус төлөвтэй нэгж талбарын өмчлөгчийн нэрийг зураг дээр бичих */
+  showOwners: boolean;
 }
 
 /**
@@ -65,6 +77,20 @@ interface PrintSettings {
 // хэвлэх цонх өөрөө түүнийг тайлбар/задаргаа/давхаргадаа оруулна.
 // Аймаг/сум/баг хилийн давхарга "Ажлын зураг" дээр ордоггүй (Трас зураг дээр л байна).
 const BOUNDARY_IDS = PRINT_BOUNDARY_IDS.filter((id) => id !== "au1" && id !== "au2" && id !== "au3");
+
+/* ГУС-ийн лавлах давхаргууд — СОНГОЛТООР (өгөгдмөл нь унтраалттай). Дэд
+   давхаргуудыг тус тусад нь сонгоно; хэвлэхэд бүлэг тус бүр НЭГ WMS хүсэлт
+   (сонгосон кодуудын CQL-ийг OR-оор нэгтгэнэ — өнгийг SLD өөрөө кодоор нь). */
+const GUS_GROUPS = [
+  { ...AGREED_GROUP, ids: AGREED_CODE_LAYER_IDS as readonly string[] },
+  { ...SEC_GROUP, ids: SEC_CODE_LAYER_IDS as readonly string[] },
+];
+type StaticLayerId = Parameters<typeof layerDef>[0];
+
+/** Нэгж талбарын API-гийн хуудасны дээд хэмжээ (backend: max 200). */
+const OWNER_PAGE_SIZE = 200;
+/** Өмчлөгчийн нэрийн үсгийн хэмжээ — ХУУДАСНЫ px-ээр. */
+const OWNER_LABEL_FONT = 6.5;
 
 /**
  * Хэвлэх газрын зургийн ӨРГӨН (px) — нягтаршлын коэффициентээр өснө.
@@ -100,6 +126,7 @@ export default function PrintMapDialog({
   // Нэгж талбарын ТӨЛӨВҮҮД — бүртгэлээс. Тайлбар, явцын задаргаа болон
   // хэвлэх давхаргууд бүгд эндээс бүрдэнэ.
   const { defs: statusLayerDefs } = useParcelStatusLayers();
+  const statusRules = useParcelStatusRules();
   const [extent, setExtent] = useState<[number, number, number, number] | null>(null);
 
   const [paper, setPaper] = useState<PrintPaperSize>("A4");
@@ -114,6 +141,10 @@ export default function PrintMapDialog({
   /* ЧАГТЛААГҮЙ давхаргууд — газрын зураг дээр ч, таних тэмдэг дээр ч ГАРАХГҮЙ.
      Өгөгдмөл нь бүгд асаалттай (хоосон Set). */
   const [hiddenLayers, setHiddenLayers] = useState<Set<string>>(() => new Set());
+  const [gusLayers, setGusLayers] = useState<Set<string>>(() => new Set());
+  // Дэд давхаргын жагсаалт нь урт (9 / 28) тул бүлгийг дэлгэж байж харуулна.
+  const [openGroup, setOpenGroup] = useState<string | null>(null);
+  const [showOwners, setShowOwners] = useState(false);
   /* Сүүлд ХЭРЭГЖСЭН тохиргоо — урьдчилан харах зураг ЯГ үүгээр бүтсэн.
      null = цонх нээгдээд зураг хараахан үүсгээгүй (нээгдэнгүүт дэмий
      WMS/тайлын хүсэлт явуулахгүй). Татах үед ч цаас/чиглэлийг ЭНДЭЭС авна —
@@ -218,7 +249,7 @@ export default function PrintMapDialog({
 
   /* ── Зураг авч, хуудас бүрдүүлэх ─────────────────────────────── */
   // Таних тэмдэг — ХЭРЭГЖҮҮЛЖ буй тохиргооны давхаргуудаар (ноорогоор биш).
-  const buildLegend = (hidden: Set<string>): PrintLegendItem[] => [
+  const buildLegend = (hidden: Set<string>, gus: Set<string>): PrintLegendItem[] => [
     // Төлөв тус бүрийн тооны ӨМНӨ — төсөл арга хэмжээний нийт нэгж талбар.
     ...(acq ? [{ color: "", label: `Нийт нэгж талбар (${acq.parcel_count})`, total: true }] : []),
     // Төлөвүүд БҮРТГЭЛЭЭС ирнэ (хатуу жагсаалт биш) бөгөөд хэрэглэгчийн
@@ -235,6 +266,19 @@ export default function PrintMapDialog({
     ...BOUNDARY_IDS.filter((id) => !hidden.has(id)).map((id) => {
       const def = layerDef(id);
       return { color: def.color, label: def.label, line: true };
+    }),
+    // Сонгосон ГУС-ийн дэд давхаргууд — бүлэг бүр ГАРЧИГтай (тод мөр), дэд
+    // давхарга нь зураг дээрхтэй ижил торлолтоор (SLD: торлосон / цэгэн).
+    ...GUS_GROUPS.flatMap((g) => {
+      const picked = g.ids.filter((id) => gus.has(id));
+      if (!picked.length) return [];
+      return [
+        { color: "", label: g.label, total: true },
+        ...picked.map((id) => {
+          const def = layerDef(id as StaticLayerId);
+          return { color: def.color, label: def.label, hatch: def.hatch };
+        }),
+      ];
     }),
   ];
 
@@ -254,6 +298,13 @@ export default function PrintMapDialog({
       }),
     ];
   }, [statusCounts, statusLayerDefs]);
+
+  const toggleGus = (ids: readonly string[], on: boolean) =>
+    setGusLayers((prev) => {
+      const next = new Set(prev);
+      ids.forEach((id) => (on ? next.add(id) : next.delete(id)));
+      return next;
+    });
 
   const toggleLayer = (id: string) =>
     setHiddenLayers((prev) => {
@@ -277,9 +328,19 @@ export default function PrintMapDialog({
     a.paper === b.paper &&
     a.orientation === b.orientation &&
     sameSet(a.hiddenLayers, b.hiddenLayers) &&
-    sameSet(a.drones, b.drones);
+    sameSet(a.drones, b.drones) &&
+    sameSet(a.gusLayers, b.gusLayers) &&
+    a.showOwners === b.showOwners;
 
-  const draft: PrintSettings = { title, paper, orientation, hiddenLayers, drones: selectedDrones };
+  const draft: PrintSettings = {
+    title,
+    paper,
+    orientation,
+    hiddenLayers,
+    drones: selectedDrones,
+    gusLayers,
+    showOwners,
+  };
   const started = applied !== null;
   /* Ноорог нь зураг дээр хэрэгжсэнээсээ ЗӨРСӨН үү — товчийг онцолж,
      урьдчилан харагдаж буй зураг ХУУЧИН гэдгийг мэдэгдэнэ. */
@@ -296,6 +357,7 @@ export default function PrintMapDialog({
     return {
       planCode: acq?.plan_code,
       planName: acq?.plan_name,
+      nithDecreeNumber: acq?.nith_decree_number,
       acquisitionAreaM2: acq?.area_m2,
       parcelsAreaM2,
       orgName: "Нийслэлийн газар зохион байгуулалтын алба",
@@ -314,6 +376,56 @@ export default function PrintMapDialog({
       specialists: (acq?.assigned_users ?? []).map((u) => u.user_name).filter(Boolean),
     };
   }, [acq, categories, departments, parcelsAreaM2, statusCounts, statusLayerDefs]);
+
+  /* ӨМЧЛӨГЧИЙН ШОШГО — ЭЦСИЙН БУС төлөвтэй нэгж талбарууд дээр.
+     Нэр нь GeoServer-ийн view-д байхгүй тул backend-ийн жагсаалтаас
+     (holder_name), геометр нь WFS-ээс; parcel_id-аар холбоно. */
+  const loadOwnerLabels = async (hidden: Set<string>) => {
+    const names = new Map<string, string>();
+    for (let page = 1; ; page++) {
+      const res = await landApi.getParcels(acquisitionId, { page, page_size: OWNER_PAGE_SIZE });
+      (res.data ?? []).forEach((p) => {
+        if (p.holder_name?.trim()) names.set(p.parcel_id, p.holder_name.trim());
+      });
+      if (page >= (res.total_pages ?? 1) || !(res.data ?? []).length) break;
+    }
+
+    const q = new URLSearchParams({
+      service: "WFS", version: "1.1.0", request: "GetFeature",
+      typeName: "land:v_parcel_acquisition", CQL_FILTER: acqFilter,
+      outputFormat: "application/json", propertyName: "parcel_id,status,geometry",
+    });
+    const r = await fetch(GS_WFS, {
+      method: "POST",
+      headers: gsAuthHeaders({ "Content-Type": "application/x-www-form-urlencoded" }),
+      body: q.toString(),
+    });
+    if (!r.ok) throw new Error(`Нэгж талбарын геометр ачаалагдсангүй (${r.status})`);
+    const features = new GeoJSON().readFeatures(await r.json(), {
+      dataProjection: "EPSG:4326",
+      featureProjection: "EPSG:3857",
+    });
+
+    // Далдалсан төлөвийн нэгж талбарт ч нэр бичихгүй.
+    const hiddenStatuses = new Set(
+      statusLayerDefs.filter((d) => hidden.has(d.id)).map((d) => parcelStatusIdFromLayer(d.id)),
+    );
+    const labels: { x: number; y: number; text: string }[] = [];
+    features.forEach((f) => {
+      const status = Number(f.get("status"));
+      if (statusRules(status).is_final || hiddenStatuses.has(status)) return;
+      const text = names.get(String(f.get("parcel_id") ?? ""));
+      const geom = f.getGeometry() as Polygon | MultiPolygon | undefined;
+      if (!text || !geom) return;
+      // Хотгор хэлбэртэй талбарт ч ДОТОР нь байх цэг (centroid гадуур гарч болно)
+      const pt =
+        geom.getType() === "MultiPolygon"
+          ? (geom as MultiPolygon).getInteriorPoints().getCoordinates()[0]
+          : (geom as Polygon).getInteriorPoint().getCoordinates();
+      if (pt) labels.push({ x: pt[0], y: pt[1], text });
+    });
+    return labels;
+  };
 
   const rebuild = async (cfg: PrintSettings) => {
     const ext = extent;
@@ -390,8 +502,26 @@ export default function PrintMapDialog({
           required: id === "v_acquisition_plan" || isStatus,
         });
       });
+    // ГУС-ийн лавлах давхаргууд — нэгж талбаруудын ДЭЭР (zIndex 50/51), улс
+    // даяарын өгөгдөл тул чөлөөлөлтөөр шүүхгүй. Туслах тул унавал алгасна.
+    GUS_GROUPS.forEach((g) => {
+      const picked = g.ids.filter((id) => cfg.gusLayers.has(id));
+      if (!picked.length) return;
+      const first = layerDef(picked[0] as StaticLayerId);
+      layers.push({
+        kind: "wms",
+        layer: `land:${geoServerName(picked[0] as MapLayerId)}`,
+        cql: picked.map((id) => `(${layerDef(id as StaticLayerId).cql})`).join(" OR "),
+        opacity: first.opacity ?? 1,
+      });
+    });
 
     try {
+      if (cfg.showOwners) {
+        const labels = await loadOwnerLabels(cfg.hiddenLayers);
+        // Үсгийн хэмжээ хуудасны px-ээр тогтмол → canvas-ын нягтаршлаар өсгөнө.
+        if (labels.length) layers.push({ kind: "label", labels, fontPx: OWNER_LABEL_FONT * (mapW / area.width) });
+      }
       const canvas = await renderPrintMapCanvas({ extent: view, width: mapW, height: mapH, layers });
       mapCanvasRef.current = canvas;
       viewInfoRef.current = viewInfo;
@@ -408,7 +538,7 @@ export default function PrintMapDialog({
       title: cfg.title,
       orientation: cfg.orientation,
       paper: cfg.paper,
-      legend: buildLegend(cfg.hiddenLayers),
+      legend: buildLegend(cfg.hiddenLayers, cfg.gusLayers),
       viewInfo,
       info: { ...info, logo: logoRef.current },
     });
@@ -424,6 +554,7 @@ export default function PrintMapDialog({
       ...draft,
       hiddenLayers: new Set(hiddenLayers),
       drones: new Set(selectedDrones),
+      gusLayers: new Set(gusLayers),
     };
     const prev = applied;
     setApplied(next);
@@ -520,6 +651,86 @@ export default function PrintMapDialog({
                 );
               })}
             </div>
+          </div>
+
+          {/* ГУС-ийн лавлах давхаргууд — СОНГОЛТООР. Бүлгийн чагт нь бүх дэд
+              давхаргыг асаах/унтраах; дэлгэж байж тус тусад нь сонгоно.
+              Сонгосон нь зураг дээр ба таних тэмдэгт гарна. */}
+          <div className="space-y-1.5">
+            <div className="flex flex-wrap items-center gap-2">
+              {GUS_GROUPS.map((g) => {
+                const n = g.ids.filter((id) => gusLayers.has(id)).length;
+                const open = openGroup === g.id;
+                return (
+                  <div
+                    key={g.id}
+                    className={`flex items-center rounded-lg border text-[11px] font-medium ${
+                      n > 0
+                        ? "border-[#02c0ce] bg-[#02c0ce]/10 text-slate-700 dark:text-slate-200"
+                        : "border-slate-200 text-slate-500 dark:border-[#37394d] dark:text-slate-400"
+                    }`}
+                  >
+                    <label className="flex cursor-pointer items-center gap-1.5 py-1 pl-2.5 pr-1.5">
+                      <input
+                        type="checkbox"
+                        checked={n === g.ids.length}
+                        ref={(el) => {
+                          if (el) el.indeterminate = n > 0 && n < g.ids.length;
+                        }}
+                        onChange={(e) => toggleGus(g.ids, e.target.checked)}
+                        className="h-3 w-3 accent-[#02c0ce]"
+                      />
+                      <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ backgroundColor: g.color }} />
+                      {g.label}
+                      {n > 0 && <span className="text-[10px] text-slate-400">({n}/{g.ids.length})</span>}
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setOpenGroup(open ? null : g.id)}
+                      title="Дэд давхаргууд"
+                      className="flex h-full items-center border-l border-inherit px-1.5 py-1 hover:bg-slate-100 dark:hover:bg-[#252630]"
+                    >
+                      <ChevronDown className={`h-3 w-3 transition-transform ${open ? "rotate-180" : ""}`} />
+                    </button>
+                  </div>
+                );
+              })}
+              <label className="ml-auto flex cursor-pointer items-center gap-1.5 text-[11px] font-medium text-slate-600 dark:text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={showOwners}
+                  onChange={(e) => setShowOwners(e.target.checked)}
+                  className="h-3.5 w-3.5 accent-[#02c0ce]"
+                />
+                Өмчлөгч харах
+              </label>
+            </div>
+            {GUS_GROUPS.filter((g) => g.id === openGroup).map((g) => (
+              <div key={g.id} className="flex max-h-24 flex-wrap gap-1.5 overflow-y-auto rounded-lg bg-slate-50 p-2 dark:bg-[#252630]">
+                {g.ids.map((id) => {
+                  const def = layerDef(id as StaticLayerId);
+                  const on = gusLayers.has(id);
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => toggleGus([id], !on)}
+                      className={`flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[10.5px] transition-colors ${
+                        on
+                          ? "border-[#02c0ce] bg-white text-slate-700 dark:bg-[#1e1f27] dark:text-slate-200"
+                          : "border-slate-200 text-slate-400 hover:bg-white dark:border-[#37394d] dark:text-slate-500 dark:hover:bg-[#1e1f27]"
+                      }`}
+                    >
+                      <span
+                        className="h-2.5 w-2.5 shrink-0 rounded-sm"
+                        style={{ backgroundColor: def.color, opacity: on ? 1 : 0.35 }}
+                      />
+                      {def.label}
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
           </div>
 
           {usableDrones.length > 0 && (

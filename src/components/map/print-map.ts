@@ -2,6 +2,7 @@ import type OLMap from "ol/Map";
 import { toLonLat } from "ol/proj";
 import { PDFDocument } from "pdf-lib";
 import { GS_WMS, gsAuthHeaders } from "@/lib/geoserver";
+import type { LayerHatch } from "./layer-config";
 
 export interface PrintLegendItem {
   color: string;
@@ -10,6 +11,63 @@ export interface PrintLegendItem {
   line?: boolean;
   /** true бол тэмдэггүй, тод мөр — ж: "Нийт нэгж талбар (120)". */
   total?: boolean;
+  /**
+   * Торлосон/цэгэн будалт — зураг дээрх SLD-тэй ижил хэлбэрээр дөрвөлжинг
+   * зурна (ГУС-ийн дэд давхаргууд). Заагаагүй бол дүүрэн өнгө.
+   */
+  hatch?: LayerHatch;
+}
+
+/**
+ * Таних тэмдгийн ТОРЛОСОН дөрвөлжин — давхаргын самбарын `swatchStyle`-тэй
+ * ижил: бүдэг дүүргэлт + торлолт/цэг + өнгөт хүрээ.
+ */
+function drawHatchSwatch(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  color: string,
+  hatch: LayerHatch,
+): void {
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x, y, w, h);
+  ctx.clip();
+  ctx.globalAlpha = 0.15;
+  ctx.fillStyle = color;
+  ctx.fillRect(x, y, w, h);
+  ctx.globalAlpha = 1;
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = 0.6;
+  const step = 2.5;
+  if (hatch === "dot") {
+    for (let px = x + step / 2; px < x + w; px += step)
+      for (let py = y + step / 2; py < y + h; py += step) {
+        ctx.beginPath();
+        ctx.arc(px, py, 0.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+  } else {
+    ctx.beginPath();
+    const diag = hatch === "slash" || hatch === "times";
+    const anti = hatch === "backslash" || hatch === "times";
+    const vert = hatch === "vertline" || hatch === "plus";
+    const horz = hatch === "horline" || hatch === "plus";
+    for (let d = -h; d < w + h; d += step) {
+      if (diag) { ctx.moveTo(x + d, y + h); ctx.lineTo(x + d + h, y); }
+      if (anti) { ctx.moveTo(x + d, y); ctx.lineTo(x + d + h, y + h); }
+    }
+    if (vert) for (let px = x + step / 2; px < x + w; px += step) { ctx.moveTo(px, y); ctx.lineTo(px, y + h); }
+    if (horz) for (let py = y + step / 2; py < y + h; py += step) { ctx.moveTo(x, py); ctx.lineTo(x + w, py); }
+    ctx.stroke();
+  }
+  ctx.restore();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 0.8;
+  ctx.strokeRect(x, y, w, h);
 }
 
 export interface PrintMapViewInfo {
@@ -53,7 +111,7 @@ export const PAGE_TITLE_AREA_H = PAGE_ORG_ROW_H + 52;
 // Мэдээллийн КАРТ — тусдаа панель БИШ, газрын зургийн ДЭЭР хөвнө
 // (таних тэмдэгтэй яг ижил цагаан дэвсгэртэй). Зургийн доод хэсэгт
 // чөлөөлөлтийн хил ороогүй хоосон зай үлдээж, түүн дээр нь зурна.
-export const INFO_CARD_H = 72;
+export const INFO_CARD_H = 82;
 export const CARD_INSET = 10;
 /* БОСОО хэвлэхэд хуудас нарийн тул таних тэмдэг + мэдээллийн карт зэрэгцэж
    БАГТДАГГҮЙ — мөрийн шошго ба утга давхарлаж уншигдахгүй болдог. Иймд босоо
@@ -129,6 +187,8 @@ export function printScaleFor(paper: PrintPaperSize): number {
 export interface PrintInfo {
   planCode?: string;
   planName?: string;
+  /** НИТХ-ын тогтоолын дугаар (Ж: "2025.12.05 25/134") */
+  nithDecreeNumber?: string;
   /** Чөлөөлөлтийн хилийн талбай (м²) */
   acquisitionAreaM2?: number;
   /** Нэгж талбаруудын чөлөөлөх талбайн НИЙЛБЭР (м²) */
@@ -425,6 +485,19 @@ export type PrintLayerSpec =
       fill?: string;
       dash?: number[];
       opacity?: number;
+    }
+  | {
+      /**
+       * Газрын зураг дээрх ТЕКСТ шошго (нэгж талбарын өмчлөгчийн нэр г.м).
+       * Цагаан хүрээтэй тул хиймэл дагуулын бараан зураг дээр ч уншигдана.
+       */
+      kind: "label";
+      /** Шошгоны төв (EPSG:3857) ба текст */
+      labels: { x: number; y: number; text: string }[];
+      /** Үсгийн хэмжээ — газрын зургийн CANVAS-ын px-ээр (дуудагч масштаблана). */
+      fontPx: number;
+      color?: string;
+      opacity?: number;
     };
 
 function drawVectorLayer(
@@ -458,6 +531,29 @@ function drawVectorLayer(
     if (spec.dash) ctx.setLineDash(spec.dash);
     ctx.stroke();
   }
+  ctx.restore();
+}
+
+function drawLabelLayer(
+  ctx: CanvasRenderingContext2D,
+  spec: Extract<PrintLayerSpec, { kind: "label" }>,
+  extent: [number, number, number, number],
+  resolution: number,
+): void {
+  ctx.save();
+  ctx.font = `bold ${spec.fontPx}px sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.lineJoin = "round";
+  ctx.lineWidth = Math.max(2, spec.fontPx * 0.28);
+  ctx.strokeStyle = "rgba(255,255,255,0.92)";
+  ctx.fillStyle = spec.color ?? "#0f172a";
+  spec.labels.forEach(({ x, y, text }) => {
+    const px = (x - extent[0]) / resolution;
+    const py = (extent[3] - y) / resolution;
+    ctx.strokeText(text, px, py);
+    ctx.fillText(text, px, py);
+  });
   ctx.restore();
 }
 
@@ -651,6 +747,7 @@ export async function renderPrintMapCanvas(o: {
     ctx.globalAlpha = spec.opacity ?? 1;
     if (spec.kind === "wms") await drawWmsLayer(ctx, spec, extent, width, height);
     else if (spec.kind === "vector") drawVectorLayer(ctx, spec, extent, resolution);
+    else if (spec.kind === "label") drawLabelLayer(ctx, spec, extent, resolution);
     else await drawXyzLayer(ctx, spec, extent, resolution);
   }
   ctx.globalAlpha = 1;
@@ -790,10 +887,11 @@ export function composePrintPage(
     title,
     orientation,
     paper = "A4",
-    legend = [],
     viewInfo = null,
     info = {},
   } = opts;
+  // `let` — багтахгүй бол доор "+N бусад"-аар тайрна.
+  let legend = opts.legend ?? [];
   const { width, height } = pageSizePx(orientation, paper);
   /* Canvas-ыг S дахин том хийж, контекстийг мөн S-ээр масштаблана —
      доорх БҮХ layout тооцоо 96dpi-ийн CSS px-ээр хэвээр бичигдэнэ.
@@ -895,15 +993,23 @@ export function composePrintPage(
     const headerH = 16;
     const rowH = 10;
     const maxRows = Math.max(1, Math.floor((legendH - headerH - 4) / rowH));
-    const maxCols = 3;
-    const cols = Math.max(1, Math.min(maxCols, Math.ceil(legend.length / maxRows)));
-    const perCol = Math.ceil(legend.length / cols);
 
     ctx.font = "bold 8px sans-serif";
     const titleTextWidth = ctx.measureText("Таних тэмдэг").width;
     ctx.font = "7px sans-serif";
     const maxRowTextWidth = Math.max(...legend.map((item) => ctx.measureText(item.label).width));
-    const colW = Math.max(92, maxRowTextWidth + 21);
+    const colW = Math.min(150, Math.max(92, maxRowTextWidth + 21));
+    /* Баганын тоо — мэдээллийн картад ~300px үлдээх хэмжээгээр (ГУС-ийн дэд
+       давхаргууд олноор сонгогдоход 3 багана хүрэлцдэггүй). Тэр ч багтахгүй
+       бол сүүлийн мөрийг "+N бусад" болгоно — картаас доош хальж гарахгүй. */
+    const maxCols = Math.max(3, Math.floor((mapAreaW - CARD_INSET * 3 - 300 - 6) / colW));
+    const cols = Math.max(1, Math.min(maxCols, Math.ceil(legend.length / maxRows)));
+    const capacity = cols * maxRows;
+    if (legend.length > capacity) {
+      const rest = legend.length - capacity + 1;
+      legend = [...legend.slice(0, capacity - 1), { color: "", label: `… бусад ${rest}`, total: true }];
+    }
+    const perCol = Math.ceil(legend.length / cols);
     const legendW = Math.max(titleTextWidth + 16, colW * cols + 6);
     const legendX = mapAreaX + CARD_INSET;
     const legendY = cardBottom - legendH;
@@ -946,6 +1052,8 @@ export function composePrintPage(
         ctx.moveTo(x, swatchY);
         ctx.lineTo(x + 9, swatchY);
         ctx.stroke();
+      } else if (item.hatch) {
+        drawHatchSwatch(ctx, x, swatchY - 3, 9, 6, item.color, item.hatch);
       } else {
         ctx.fillStyle = item.color;
         ctx.fillRect(x, swatchY - 3, 9, 6);
@@ -1011,6 +1119,7 @@ export function composePrintPage(
     let y = infoY + 21;
     drawRow(col1X, y, "Төлөвлөлтийн дугаар:", info.planCode || "—", colW - 8); y += rowH;
     drawRow(col1X, y, "Төлөвлөлтийн нэр:", info.planName || "—", colW - 8); y += rowH;
+    drawRow(col1X, y, "НИТХ тогтоолын дугаар:", info.nithDecreeNumber || "—", colW - 8); y += rowH;
     drawRow(col1X, y, "Чөлөөлөх талбай:", areaText(info.acquisitionAreaM2), colW - 8); y += rowH;
     drawRow(col1X, y, "Нэгж талбаруудын нийт талбай:", areaText(info.parcelsAreaM2), colW - 8); y += rowH;
     if (viewInfo) {

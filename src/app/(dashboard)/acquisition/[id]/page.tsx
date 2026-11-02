@@ -11,6 +11,7 @@ import { ProgressTab } from "./_components/progress-tab";
 import { AssigneesTab } from "./_components/assignees-tab";
 import { ParcelsTab } from "./_components/parcels-tab";
 import { FinancingTab } from "./_components/financing-tab";
+import { ParcelSurveyView } from "../../parcel_survey/_components/parcel-survey-view";
 import { STATUS_LABELS, ACQ_STATUS } from "@/types";
 import {
   canViewAcquisitionTab,
@@ -30,6 +31,7 @@ import {
   FileDown,
   Calculator,
   Users,
+  ClipboardList,
 } from "lucide-react";
 
 import { toast } from "sonner";
@@ -238,6 +240,11 @@ export default function AcquisitionDetailPage() {
       icon: <Users className="h-4 w-4" />,
     },
     { key: "map", label: "Байршил", icon: <Map className="h-4 w-4" /> },
+    {
+      key: "survey",
+      label: "Газрын судалгаа",
+      icon: <ClipboardList className="h-4 w-4" />,
+    },
   ];
   // Таб бүр хандах эрхийн бодлогоор (access-policy) харагдана
   const visibleTabs = TABS.filter((item) => canViewAcquisitionTab(item.key));
@@ -357,6 +364,7 @@ export default function AcquisitionDetailPage() {
       )}
       {activeTab === "assignees" && <AssigneesTab id={id} canEdit={canEdit} />}
       {activeTab === "financing" && <FinancingTab id={id} canEdit={canEdit} />}
+      {activeTab === "survey" && <ParcelSurveyView acquisitionId={id} />}
       {activeTab === "map" && (
         <LocationTab
           id={id}
