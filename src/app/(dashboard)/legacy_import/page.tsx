@@ -1,8 +1,8 @@
 "use client";
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Check, Eye, FileSpreadsheet, Loader2, Paperclip, Plus, Trash2 } from "lucide-react";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ArrowLeft, Check, ChevronLeft, ChevronRight, Eye, FileSpreadsheet, Loader2, Paperclip, Plus, Search, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { canImportLegacyData } from "@/lib/role-utils";
@@ -15,7 +15,7 @@ import { ValuationStep } from "./_components/valuation-step";
 import { ProjectsStep } from "./_components/projects-step";
 import { RollbackDialog } from "./_components/rollback-dialog";
 import { AttachmentsImport } from "./_components/attachments-import";
-import { GusJobBanner, primaryButton, secondaryButton, td, th, theadClass } from "./_components/shared";
+import { GusJobBanner, inputClass, primaryButton, secondaryButton, td, th, theadClass } from "./_components/shared";
 
 type StepKey = "boundary" | "parcels" | "reports" | "projects" | "summary";
 
@@ -33,6 +33,8 @@ const STEPS: Record<ImportMode, { key: StepKey; label: string }[]> = {
     { key: "summary", label: "Нэгтгэл ба оруулах" },
   ],
 };
+
+const PAGE_SIZE = 20;
 
 const modeOf = (state: ImportState | undefined): ImportMode => state?.session.mode ?? "full";
 
@@ -77,6 +79,16 @@ function reachable(state: ImportState | undefined, step: StepKey): boolean {
   return !reportsPending(state) && !gusJob(state);
 }
 
+/** Хуудасны дугаарууд: эхний, сүүлийн, одоогийнхын хөрш; завсарт null (…). */
+function pageNumbers(page: number, totalPages: number): (number | null)[] {
+  const out: (number | null)[] = [];
+  for (let p = 1; p <= totalPages; p++) {
+    if (p === 1 || p === totalPages || Math.abs(p - page) <= 1) out.push(p);
+    else if (out[out.length - 1] !== null) out.push(null);
+  }
+  return out;
+}
+
 /** Чөлөөлөлтийн нэрс — олон бол эхний хэдийг харуулж, бусдыг дэлгэнэ. */
 function AcquisitionNames({ names, count }: { names: string[]; count: number }) {
   const [open, setOpen] = useState(false);
@@ -105,14 +117,33 @@ function LegacyImportPage() {
   const [creating, setCreating] = useState(false);
   const [rollbackID, setRollbackID] = useState<string | null>(null);
   const [showAttachments, setShowAttachments] = useState(false);
+  const [nameQuery, setNameQuery] = useState("");
+  // Хайлтыг сервер рүү бичих бүрд биш, бичиж дуусахад илгээнэ.
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [page, setPage] = useState(1);
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedQuery(nameQuery.trim());
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [nameQuery]);
 
   useEffect(() => setAllowed(canImportLegacyData()), []);
 
   const sessions = useQuery({
-    queryKey: ["legacy-import", "sessions"],
-    queryFn: legacyImportApi.sessions,
+    queryKey: ["legacy-import", "sessions", page, debouncedQuery],
+    queryFn: () => legacyImportApi.sessions({ page, pageSize: PAGE_SIZE, q: debouncedQuery }),
     enabled: allowed === true && !sessionID,
+    placeholderData: keepPreviousData,
   });
+  const sessionItems = sessions.data?.items ?? [];
+  const total = sessions.data?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  // Сүүлийн хуудасны сүүлчийн мөрийг устгавал хоосон хуудсанд үлдэхгүй.
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
   const stateKey = ["legacy-import", "session", sessionID];
   const stateQuery = useQuery({
     queryKey: stateKey,
@@ -272,10 +303,29 @@ function LegacyImportPage() {
               </button>
             </div>
           </div>
+          {(total > 0 || debouncedQuery || nameQuery) && (
+            <div className="relative max-w-sm">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                className={cn(inputClass, "w-full pl-9 pr-8")}
+                value={nameQuery}
+                onChange={(e) => setNameQuery(e.target.value)}
+                placeholder="Чөлөөлөлтийн нэрээр хайх"
+              />
+              {nameQuery && (
+                <button className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600" onClick={() => setNameQuery("")} title="Цэвэрлэх">
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+          )}
           {sessions.isLoading && <p className="text-[12px] text-slate-500">Уншиж байна…</p>}
           {sessions.error && <p className="text-[12px] text-[#f8285a]">{(sessions.error as Error).message}</p>}
-          {sessions.data && sessions.data.length === 0 && <p className="text-[12px] text-slate-500">Одоогоор импорт алга.</p>}
-          {sessions.data && sessions.data.length > 0 && (
+          {sessions.data && total === 0 && !debouncedQuery && <p className="text-[12px] text-slate-500">Одоогоор импорт алга.</p>}
+          {sessions.data && total === 0 && debouncedQuery && (
+            <p className="text-[12px] text-slate-500">«{debouncedQuery}» нэртэй чөлөөлөлттэй импорт олдсонгүй.</p>
+          )}
+          {sessionItems.length > 0 && (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[820px] text-left">
                 <thead className={theadClass}>
@@ -290,7 +340,7 @@ function LegacyImportPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {sessions.data.map((s) => (
+                  {sessionItems.map((s) => (
                     <tr
                       key={s.id}
                       onClick={(e) => {
@@ -347,6 +397,49 @@ function LegacyImportPage() {
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+          {total > 0 && (
+            <div className="flex items-center justify-between border-t border-slate-100 pt-3 dark:border-[#37394d]">
+              <p className="text-[12px] text-slate-400 dark:text-slate-500">
+                Нийт {total} импортын {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)}-г харуулж байна
+              </p>
+              {totalPages > 1 && (
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={page === 1}
+                    className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-500 transition-colors hover:border-[#02c0ce] hover:text-[#02c0ce] disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/[0.08] dark:text-slate-400"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </button>
+                  {pageNumbers(page, totalPages).map((p, i) =>
+                    p === null ? (
+                      <span key={`gap-${i}`} className="px-1 text-[13px] text-slate-400">…</span>
+                    ) : (
+                      <button
+                        key={p}
+                        onClick={() => setPage(p)}
+                        className={cn(
+                          "flex h-8 min-w-8 items-center justify-center rounded-lg border px-2 text-[13px] font-medium transition-colors",
+                          page === p
+                            ? "border-[#02c0ce] bg-[#02c0ce] text-white"
+                            : "border-slate-200 text-slate-600 hover:border-[#02c0ce] hover:text-[#02c0ce] dark:border-white/[0.08] dark:text-slate-400",
+                        )}
+                      >
+                        {p}
+                      </button>
+                    ),
+                  )}
+                  <button
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={page === totalPages}
+                    className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-500 transition-colors hover:border-[#02c0ce] hover:text-[#02c0ce] disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/[0.08] dark:text-slate-400"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>

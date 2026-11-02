@@ -370,6 +370,11 @@ export interface AttachmentMatch {
   parcel: AttachmentParcel | null;
 }
 
+export interface SessionPage {
+  items: SessionListItem[];
+  total: number;
+}
+
 export const legacyImportApi = {
   categories: () => call<Category[]>(api.get("/legacy-import/categories")),
   /** Хавтсын PDF-ийн нэрийг (өргөтгөлгүй) нэгж талбарын дугаартай ЯГ тулгана. */
@@ -390,7 +395,17 @@ export const legacyImportApi = {
       _silent: true,
     }));
   },
-  sessions: () => call<SessionListItem[]>(api.get("/legacy-import/sessions")),
+  /** Хуудаслалттай; q — чөлөөлөлтийн нэрээр хайх (сервер талд). */
+  sessions: async (params: { page: number; pageSize: number; q?: string }): Promise<SessionPage> => {
+    try {
+      const { data } = await api.get("/legacy-import/sessions", {
+        params: { page: params.page, page_size: params.pageSize, q: params.q || undefined },
+      });
+      return { items: data.data ?? [], total: data.total ?? 0 };
+    } catch (err) {
+      throw apiError(err);
+    }
+  },
   create: (mode: ImportMode) => call<{ id: string }>(api.post("/legacy-import/sessions", { mode })),
   // silent — дэлгэцийн бүтэн loader-гүй (давтан шинэчлэлт).
   get: (id: string, silent = false) => call<ImportState>(api.get(`/legacy-import/sessions/${id}`, { _silent: silent })),

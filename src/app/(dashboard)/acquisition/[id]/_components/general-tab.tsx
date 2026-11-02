@@ -1,11 +1,20 @@
 "use client";
 import React, { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Pencil, Save, X, Calculator, AlertTriangle } from "lucide-react";
+import {
+  Pencil,
+  Save,
+  X,
+  Calculator,
+  AlertTriangle,
+  Trash2,
+} from "lucide-react";
 import { landApi } from "@/lib/api";
 import { profApi } from "@/lib/prof-api";
 import {
+  hasPermission,
   isFinanceSpecialist,
   isMika,
   shouldUseProfessionalOrgApi,
@@ -34,6 +43,7 @@ import { SocioSurveySection } from "./socio-survey-section";
 
 export function GeneralTab({ id, canEdit }: { id: string; canEdit: boolean }) {
   const queryClient = useQueryClient();
+  const router = useRouter();
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm>(null);
   const useProfApi = shouldUseProfessionalOrgApi();
   const canViewSocioSurvey = !isFinanceSpecialist() && !isMika();
@@ -210,6 +220,20 @@ export function GeneralTab({ id, canEdit }: { id: string; canEdit: boolean }) {
     onError: (err) => toast.error(getApiError(err, "Хадгалахад алдаа гарлаа")),
   });
 
+  // Жагсаалтын хуудасны устгах товчтой ижил — устгасны дараа энэ хуудас
+  // хоосон болох тул жагсаалт руу буцна.
+  const canDelete = canEdit && !useProfApi && hasPermission("land:delete");
+  const deleteMutation = useMutation({
+    mutationFn: () => landApi.delete(id),
+    onSuccess: () => {
+      toast.success("Чөлөөлөлт устгагдлаа");
+      queryClient.invalidateQueries({ queryKey: ["land"] });
+      router.push("/acquisition");
+    },
+    onError: (err) =>
+      toast.error(getApiError(err, "Устгах боломжгүй (зөвхөн NEW статустай)")),
+  });
+
   // Хил солиход ЗӨВХӨН чөлөөлөлтийн хил өөрчлөгдөнө. Шинэ хилээс гарах нэгж
   // талбар байвал хадгалахаас өмнө зөвшөөрөл авна; байхгүй бол шууд хадгална.
   const confirmOutsideThenSave = (
@@ -331,7 +355,7 @@ export function GeneralTab({ id, canEdit }: { id: string; canEdit: boolean }) {
         </p>
         {canEdit && (
           <div className="flex items-center gap-1.5">
-            {!editing ? (
+            {!editing && (
               <button
                 onClick={() => setEditing(true)}
                 className="flex items-center gap-1.5 h-7 px-3 rounded-lg text-[12px] font-semibold transition-colors hover:text-[#02c0ce]"
@@ -350,7 +374,30 @@ export function GeneralTab({ id, canEdit }: { id: string; canEdit: boolean }) {
               >
                 <Pencil className="h-3.5 w-3.5" /> Засах
               </button>
-            ) : (
+            )}
+            {!editing && canDelete && (
+              <button
+                onClick={() =>
+                  setPendingConfirm({
+                    title: "Устгах уу?",
+                    description: `«${acq.acquisition_name || acq.plan_code || ""}» чөлөөлөлт болон түүний нэгж талбарууд устгагдана.`,
+                    confirmLabel: "Устгах",
+                    confirmColor: "#f1556c",
+                    onConfirm: () => deleteMutation.mutate(),
+                  })
+                }
+                disabled={deleteMutation.isPending}
+                className="flex items-center gap-1.5 h-7 px-3 rounded-lg text-[12px] font-semibold text-red-500 border border-red-200 dark:border-red-500/30 hover:bg-red-50 dark:hover:bg-red-500/10 disabled:opacity-50 transition-colors"
+              >
+                {deleteMutation.isPending ? (
+                  <span className="h-3 w-3 rounded-full border-2 border-red-500 border-t-transparent animate-spin" />
+                ) : (
+                  <Trash2 className="h-3.5 w-3.5" />
+                )}
+                Устгах
+              </button>
+            )}
+            {editing && (
               <>
                 <button
                   onClick={() => {
