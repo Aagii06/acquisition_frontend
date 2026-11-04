@@ -249,3 +249,41 @@ export function notifyNavEnd(): void {
   _navTarget = null;
   emit();
 }
+
+// ─── НЭВТРЭСНИЙ ДАРААХ АЧААЛАЛ (boot) ───────────────────────────────────────
+// Нэвтэрсний дараа самбар хагас ачаалагдсан (цэс, хүснэгт хоосон) байдлаар
+// харагдахын оронд эхний өгөгдөл ирэх хүртэл БҮТЭН ДЭЛГЭЦИЙН loader харагдана.
+// Login хуудас `startBoot()`-ийг router.push-ийн өмнө дуудна, самбар эхний
+// уншилт дуусахад `endBoot()`-ийг дуудна. Watchdog нь самбар ямар нэг
+// шалтгаанаар `endBoot()` дуудаагүй ч дэлгэцийг мөнхөд түгжихгүй.
+
+/** Нэвтэрсний дараах loader-ийн дээд хугацаа. */
+const MAX_BOOT_MS = 15_000;
+
+let _booting = false;
+let _bootTimer: ReturnType<typeof setTimeout> | null = null;
+
+export function getBooting(): boolean {
+  return _booting;
+}
+
+export function startBoot(): void {
+  _booting = true;
+  if (_bootTimer !== null) clearTimeout(_bootTimer);
+  _bootTimer = setTimeout(() => {
+    _bootTimer = null;
+    _booting = false;
+    emit();
+  }, MAX_BOOT_MS);
+  emit();
+}
+
+export function endBoot(): void {
+  if (_bootTimer !== null) {
+    clearTimeout(_bootTimer);
+    _bootTimer = null;
+  }
+  if (!_booting) return;
+  _booting = false;
+  emit();
+}

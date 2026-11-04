@@ -7,8 +7,24 @@ import { hasPermission } from "@/lib/role-utils";
 import { Activity, ChevronLeft, ChevronRight, Search, X } from "lucide-react";
 import { RefreshButton } from "@/components/ui/refresh-button";
 import { SearchButton } from "@/components/ui/search-button";
+import {
+  SortableHeaderRow,
+  nextSortState,
+  type SortColumn,
+  type SortState,
+} from "@/components/ui/sortable-table-head";
 
 const PAGE_SIZE = 20;
+
+// key — backend-ийн auditLogSortColumns-ийн түлхүүр.
+const HEADERS: SortColumn[] = [
+  { label: "Огноо", key: "created_at" },
+  { label: "Ажилтан", key: "actor_name" },
+  { label: "Үйлдэл", key: "action" },
+  { label: "Объект", key: "resource_type" },
+  { label: "Дэлгэрэнгүй" },
+  { label: "IP", key: "ip_address" },
+];
 
 const ACTION_LABELS: Record<string, string> = {
   created: "Үүсгэсэн",
@@ -70,11 +86,17 @@ export default function AuditLogsPage() {
   const [draftFilters, setDraftFilters] = useState<AuditFilterState>(EMPTY_FILTERS);
   const [appliedFilters, setAppliedFilters] =
     useState<AuditFilterState>(EMPTY_FILTERS);
+  const [sort, setSort] = useState<SortState | null>(null);
+
+  function applySort(key: string) {
+    setSort((cur) => nextSortState(cur, key));
+    setPage(1);
+  }
 
   const canView = hasPermission("audit:read");
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["audit-logs", page, appliedFilters],
+    queryKey: ["audit-logs", page, appliedFilters, sort],
     queryFn: () =>
       auditApi.list({
         page,
@@ -84,6 +106,8 @@ export default function AuditLogsPage() {
         resource_id: appliedFilters.resource_id || undefined,
         created_from: appliedFilters.created_from || undefined,
         created_to: appliedFilters.created_to || undefined,
+        sort: sort?.by,
+        order: sort?.dir,
       }),
     enabled: canView,
   });
@@ -201,14 +225,12 @@ export default function AuditLogsPage() {
         <div className="overflow-x-auto">
           <table className="w-full min-w-[980px] text-left">
             <thead className="border-b border-slate-100 bg-slate-50/70 text-[11px] uppercase tracking-wider text-slate-400 dark:border-white/[0.06] dark:bg-[#252630]/60 dark:text-slate-500">
-              <tr>
-                <th className="px-5 py-3 font-semibold">Огноо</th>
-                <th className="px-5 py-3 font-semibold">Ажилтан</th>
-                <th className="px-5 py-3 font-semibold">Үйлдэл</th>
-                <th className="px-5 py-3 font-semibold">Объект</th>
-                <th className="px-5 py-3 font-semibold">Дэлгэрэнгүй</th>
-                <th className="px-5 py-3 font-semibold">IP</th>
-              </tr>
+              <SortableHeaderRow
+                columns={HEADERS}
+                sort={sort}
+                onSort={applySort}
+                thClassName="px-5 py-3 font-semibold"
+              />
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-white/[0.06]">
               {isLoading ? (

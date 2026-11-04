@@ -384,3 +384,18 @@ test("шинэ загвар: нэг хөрөнгө хоёр хүснэгтээс
   assert.deepEqual(dupes, [], `давхардсан хөрөнгө: ${dupes.join(", ")}`);
   assert.equal(v.assets.length, 19, "хөрөнгийн тоо хэвээр");
 });
+
+test("шинэ загвар: нуугдсан хуучин sheet-үүд байсан ч харагдах загварыг уншина", (t) => {
+  if (!fs.existsSync(FIXTURE) || !fs.existsSync(SAMPLE_FULL)) {
+    t.skip("fixture олдсонгүй");
+    return;
+  }
+  // "загвар-2025" файлууд хуучин загварын жишээ sheet-үүдийг hidden байдлаар агуулдаг.
+  const legacy = readWorkbook(FIXTURE);
+  const wb = { ...legacy, Үнэлгээ: readWorkbook(SAMPLE_FULL).Sheet1 };
+  const expected = buildValuation(readWorkbook(SAMPLE_FULL));
+  const v = buildValuation(wb, new Set(Object.keys(legacy)));
+  assert.equal(v.layout, "single-sheet");
+  assert.equal(v.land.totalValue, expected.land.totalValue);
+  assert.equal(v.summaryTotal, expected.summaryTotal);
+});

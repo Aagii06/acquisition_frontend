@@ -162,3 +162,22 @@ test("шилжилт: зорилтот зам (таб шууд нээгдэхэ�
   assert.equal(getNavTarget(), "/map", "router.push-ийн өмнө шууд өгсөн зам");
   notifyNavEnd();
 });
+
+test("boot: нэвтэрсний дараах loader endBoot-оор, эсвэл watchdog-оор унтарна", async (t) => {
+  const { startBoot, endBoot, getBooting } = await import("../src/lib/blocking-loader-state.ts");
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+
+  startBoot();
+  assert.equal(getBooting(), true);
+  endBoot();
+  assert.equal(getBooting(), false);
+  endBoot(); // давхар дуудалт аюулгүй
+  assert.equal(getBooting(), false);
+
+  // Самбар endBoot дуудаагүй ч дэлгэц мөнхөд түгжигдэхгүй.
+  startBoot();
+  t.mock.timers.tick(14_999);
+  assert.equal(getBooting(), true, "хугацаа болоогүй байхад унтрах ёсгүй");
+  t.mock.timers.tick(2);
+  assert.equal(getBooting(), false, "MAX_BOOT_MS-ийн дараа дэлгэц чөлөөлөгдөнө");
+});

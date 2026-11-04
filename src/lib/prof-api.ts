@@ -44,6 +44,8 @@ export type ProfMyAcquisitionFilter = {
   acquisition_name?: string
   status?: number
   au3_code?: string
+  sort?: string
+  order?: 'asc' | 'desc'
   page?: number
   page_size?: number
 }
@@ -84,6 +86,8 @@ class ProfApiService {
     if (filter?.acquisition_name) p.set('acquisition_name', filter.acquisition_name)
     if (filter?.status)           p.set('status', String(filter.status))
     if (filter?.au3_code)         p.set('au3_code', filter.au3_code)
+    if (filter?.sort)             p.set('sort', filter.sort)
+    if (filter?.order)            p.set('order', filter.order)
     if (filter?.page)             p.set('page', String(filter.page))
     if (filter?.page_size)        p.set('page_size', String(filter.page_size))
     return apiClient

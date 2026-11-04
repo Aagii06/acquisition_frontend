@@ -7,6 +7,8 @@ import {
   getScreenBlocking,
   getContentLoading,
   getRefreshing,
+  getBooting,
+  endBoot,
 } from "./blocking-loader-state";
 
 export function BlockingLoaderProvider({ children }: { children: React.ReactNode }) {
@@ -20,8 +22,53 @@ export function BlockingLoaderProvider({ children }: { children: React.ReactNode
     <>
       {children}
       {blocking && <BlockingOverlay />}
+      <BootLoader />
     </>
   );
+}
+
+/**
+ * Бүтэн дэлгэцийг (sidebar, header-тэй нь) бүрэн далдлах loader. Нэвтрэх
+ * хуудас болон самбар хоёулаа ЯГ ЭНИЙГ харуулдаг тул шилжилт тасралтгүй.
+ */
+export function FullPageLoader() {
+  return (
+    <div
+      className="fixed inset-0 z-[10000] flex items-center justify-center bg-background"
+      style={{ pointerEvents: "all" }}
+      role="status"
+      aria-live="polite"
+    >
+      <LoaderCard />
+    </div>
+  );
+}
+
+/** Эхний уншилт дууссаны дараа хүлээх хугацаа — дараагийн query эхлэх зай. */
+const BOOT_SETTLE_MS = 400;
+
+/**
+ * Нэвтэрсний дараа (`startBoot`) самбарын эхний уншилт дуустал бүтэн дэлгэцийн
+ * loader харуулна. Хуудас mount болж query-нүүд эхлэх хүртэл хоромхон
+ * "уншилтгүй" мөч байдаг тул шууд биш, BOOT_SETTLE_MS тогтвортой байсны дараа
+ * унтарна.
+ */
+function BootLoader() {
+  const booting = useSyncExternalStore(subscribe, getBooting, () => false);
+  const navPending = useSyncExternalStore(
+    subscribe,
+    () => getContentLoading() === "nav",
+    () => false,
+  );
+  const initialFetching =
+    useIsFetching({ predicate: (q) => q.state.data === undefined }) > 0;
+  const busy = navPending || initialFetching;
+  useEffect(() => {
+    if (!booting || busy) return;
+    const timer = window.setTimeout(endBoot, BOOT_SETTLE_MS);
+    return () => window.clearTimeout(timer);
+  }, [booting, busy]);
+  return booting ? <FullPageLoader /> : null;
 }
 
 function BlockingOverlay() {

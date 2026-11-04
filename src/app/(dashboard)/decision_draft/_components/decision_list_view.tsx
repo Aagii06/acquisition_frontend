@@ -27,6 +27,12 @@ import { searchOnEnter } from "@/components/ui/search-on-enter";
 import { AmountHint } from "@/components/ui/amount-hint";
 import { RefreshButton } from "@/components/ui/refresh-button";
 import { SearchButton } from "@/components/ui/search-button";
+import {
+  SortableHeaderRow,
+  nextSortState,
+  type SortColumn,
+  type SortState,
+} from "@/components/ui/sortable-table-head";
 
 const EMPTY_FILTER = {
   proposal_no: "",
@@ -117,6 +123,23 @@ function pieData(item: FundingSummary, color: string) {
   ].filter((entry) => entry.value > 0);
 }
 
+// key — backend-ийн decisionDraftSortColumns-ийн түлхүүр. className нь
+// баганын өргөн ба дэлгэцийн хэмжээгээр нуух (hidden … :table-cell).
+const LIST_HEADERS: SortColumn[] = [
+  { label: "Саналын хуудас", key: "proposal_no", className: "w-[22%] sm:w-[10%]" },
+  { label: "Захирамжийн дугаар", key: "decree_number", className: "hidden w-[9%] md:table-cell" },
+  { label: "Огноо", key: "decision_date", className: "hidden w-[9%] xl:table-cell" },
+  { label: "Байршил", key: "location", className: "hidden w-[12%] lg:table-cell" },
+  { label: "Хугацаа", key: "duration_year", className: "hidden w-[7%] 2xl:table-cell" },
+  { label: "Төлөв", key: "status", className: "w-[18%] sm:w-[9%]" },
+  { label: "Одоогийн явц", key: "current_progress", className: "w-[30%] sm:w-[13%]" },
+  { label: "Санхүүгийн эх үүсвэр", key: "funding_source", className: "hidden w-[11%] xl:table-cell" },
+  { label: "Ажлын төрөл", key: "work_type", className: "hidden w-[10%] 2xl:table-cell" },
+  { label: "Төсөв", key: "budget", className: "hidden w-[6%] 2xl:table-cell" },
+  { label: "Нэгж талбар", key: "parcel_count", className: "hidden w-[5%] lg:table-cell" },
+  { label: "", className: "w-[92px]" },
+];
+
 /**
  * «Захирамж» бүлгийн жагсаалт — ТӨЛӨВӨӨР тогтмол шүүгдэнэ:
  *  - «Захирамжийн төсөл» (/decision_draft) — Төсөл төлөвтэй
@@ -155,6 +178,7 @@ export function DecisionListView({
   const [filter, setFilter] = useState(EMPTY_FILTER);
   const [page, setPage] = useState(1);
   const [searchTick, setSearchTick] = useState(0);
+  const [sort, setSort] = useState<SortState | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const queryClient = useQueryClient();
@@ -167,6 +191,11 @@ export function DecisionListView({
     setPerms({ view: canViewDecisionDrafts(), create: canCreateDecisionDraft() });
     setReady(true);
   }, []);
+
+  function applySort(key: string) {
+    setSort((cur) => nextSortState(cur, key));
+    setPage(1);
+  }
 
   function applySearch() {
     setFilter({ ...draft });
@@ -222,7 +251,7 @@ export function DecisionListView({
   }
 
   const { data, isLoading } = useQuery({
-    queryKey: ["decision-drafts", status, filter, page, searchTick],
+    queryKey: ["decision-drafts", status, filter, page, searchTick, sort],
     queryFn: () =>
       decisionDraftApi.list({
         page,
@@ -234,6 +263,8 @@ export function DecisionListView({
         parcel_id: filter.parcel_id || undefined,
         duration_year: filter.duration_year ? Number(filter.duration_year) : undefined,
         status,
+        sort: sort?.by,
+        order: sort?.dir,
       }),
     // decision:read эрхгүй бол 403 болох тул дуудахгүй
     enabled: ready && perms.view,
@@ -752,42 +783,13 @@ export function DecisionListView({
           <div className="w-full overflow-hidden">
             <table className="w-full table-fixed text-[13px]">
               <thead>
-                <tr className="border-b border-slate-100 dark:border-[#37394d] bg-slate-50/80 dark:bg-[#1a1d20]">
-                  <th className="w-[22%] px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 sm:w-[10%]">
-                    Саналын хуудас
-                  </th>
-                  <th className="hidden w-[9%] px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 md:table-cell">
-                    Захирамжийн дугаар
-                  </th>
-                  <th className="hidden w-[9%] px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 xl:table-cell">
-                    Огноо
-                  </th>
-                  <th className="hidden w-[12%] px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 lg:table-cell">
-                    Байршил
-                  </th>
-                  <th className="hidden w-[7%] px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 2xl:table-cell">
-                    Хугацаа
-                  </th>
-                  <th className="w-[18%] px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 sm:w-[9%]">
-                    Төлөв
-                  </th>
-                  <th className="w-[30%] px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 sm:w-[13%]">
-                    Одоогийн явц
-                  </th>
-                  <th className="hidden w-[11%] px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 xl:table-cell">
-                    Санхүүгийн эх үүсвэр
-                  </th>
-                  <th className="hidden w-[10%] px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 2xl:table-cell">
-                    Ажлын төрөл
-                  </th>
-                  <th className="hidden w-[6%] px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 2xl:table-cell">
-                    Төсөв
-                  </th>
-                  <th className="hidden w-[5%] px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 lg:table-cell">
-                    Нэгж талбар
-                  </th>
-                  <th className="w-[92px] px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500" />
-                </tr>
+                <SortableHeaderRow
+                  columns={LIST_HEADERS}
+                  sort={sort}
+                  onSort={applySort}
+                  thClassName="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500"
+                  className="border-b border-slate-100 dark:border-[#37394d] bg-slate-50/80 dark:bg-[#1a1d20]"
+                />
               </thead>
               <tbody className="divide-y divide-slate-50 dark:divide-[#37394d]">
                 {data.data.map((d) => {

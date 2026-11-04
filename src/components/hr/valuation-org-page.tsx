@@ -8,6 +8,7 @@ import type { Employee, ValuationOrg, ValuationOrgEmployeeInput, ValuationOrgPay
 import { ChevronRight, Landmark, Plus, Search, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { ConfirmDialog, type PendingConfirm } from "@/components/ui/confirm-dialog";
+import { SortButton, ariaSort, useClientSort } from "@/components/ui/sortable-table-head";
 
 const inputCls =
   "h-9 rounded-lg border border-slate-200 dark:border-white/[0.08] bg-white dark:bg-[#1e1f27] px-3 text-[13px] text-slate-800 dark:text-slate-200 outline-none focus:border-[#02c0ce] focus:ring-2 focus:ring-[#02c0ce]/15 transition-all";
@@ -303,6 +304,14 @@ export function ValuationOrgPage() {
   const updateEmployee = (index: number, patch: Partial<EmployeeForm>) =>
     setEmployees((rows) => rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
 
+  // Жагсаалт нэг дор (page_size 100) ирдэг тул browser дээр эрэмбэлнэ.
+  const { sorted: rows, sort, onSort } = useClientSort(list.data?.data ?? [], (row, key) => {
+    if (key === "employee_count") return row.employee_count;
+    if (key === "is_active") return row.is_active ? 1 : 0;
+    if (key === "license_expires_at") return row.license_expires_at ?? "";
+    return row[key as "name" | "register_no" | "license_no"];
+  });
+
   if (!canView) {
     return (
       <div className="p-6 text-[13px] text-slate-500 dark:text-slate-400">
@@ -310,8 +319,6 @@ export function ValuationOrgPage() {
       </div>
     );
   }
-
-  const rows = list.data?.data ?? [];
 
   return (
     <div className="space-y-4 p-4 md:p-6">
@@ -354,12 +361,12 @@ export function ValuationOrgPage() {
           <table className="w-full min-w-[720px] text-[13px]">
             <thead>
               <tr className="border-b border-slate-100 bg-slate-50/50 dark:border-[#37394d] dark:bg-[#1a1d20]">
-                <th className="px-5 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Нэр</th>
-                <th className="px-5 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">ТТД</th>
-                <th className="px-5 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Тусгай зөвшөөрөл</th>
-                <th className="px-5 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Хүчинтэй хүртэл</th>
-                <th className="px-5 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Ажилтан</th>
-                <th className="px-5 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Төлөв</th>
+                <th className="px-5 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500" aria-sort={ariaSort(sort, "name")}><SortButton label="Нэр" sortKey="name" sort={sort} onSort={onSort} /></th>
+                <th className="px-5 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500" aria-sort={ariaSort(sort, "register_no")}><SortButton label="ТТД" sortKey="register_no" sort={sort} onSort={onSort} /></th>
+                <th className="px-5 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500" aria-sort={ariaSort(sort, "license_no")}><SortButton label="Тусгай зөвшөөрөл" sortKey="license_no" sort={sort} onSort={onSort} /></th>
+                <th className="px-5 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500" aria-sort={ariaSort(sort, "license_expires_at")}><SortButton label="Хүчинтэй хүртэл" sortKey="license_expires_at" sort={sort} onSort={onSort} /></th>
+                <th className="px-5 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500" aria-sort={ariaSort(sort, "employee_count")}><SortButton label="Ажилтан" sortKey="employee_count" sort={sort} onSort={onSort} /></th>
+                <th className="px-5 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500" aria-sort={ariaSort(sort, "is_active")}><SortButton label="Төлөв" sortKey="is_active" sort={sort} onSort={onSort} /></th>
                 {(perms.update || perms.del) && <th className="w-24 px-5 py-3 text-right text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Үйлдэл</th>}
               </tr>
             </thead>

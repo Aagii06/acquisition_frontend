@@ -27,6 +27,7 @@ import { searchOnEnter } from "@/components/ui/search-on-enter";
 import { useParcelStatusStyle } from "@/lib/use-parcel-status-style";
 import { RefreshButton } from "@/components/ui/refresh-button";
 import { SearchButton } from "@/components/ui/search-button";
+import { ParcelSyncDialog } from "../../../parcel/_components/parcel_sync_dialog";
 
 const RIGHT_TYPE_OPTIONS = [
   { value: 1, label: "Ашиглах" },
@@ -125,6 +126,7 @@ const COLUMNS: SortColumn[] = [
   // Олговрын дүн ба төлбөр олголтын хувь НЭГ баганад (дээр дүн, доор олголт).
   { label: "Нөхөн төлбөр", sublabel: "Төлбөр олголт", key: "compensation" },
   { label: "Төлөв", key: "status_id" },
+  { label: "Мэдээлэл" },
   { label: "" },
 ];
 
@@ -186,6 +188,13 @@ export function ParcelsTab({
   const currentOrgId = getCurrentOrgId();
   const isMainProfOrg = isExternal && !!currentOrgId && acquisitionProfOrgId === currentOrgId;
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm>(null);
+  // «Мэдээлэл дуудах» — нэгж талбарын дэлгэрэнгүйн товчтой ИЖИЛ цонх. Мөр
+  // дарахад дэлгэрэнгүй рүү шилждэг тул цонхыг хүснэгтийн ГАДНА зурна.
+  const [syncTarget, setSyncTarget] = useState<{
+    parcelUuid: string;
+    parcelCode: string;
+    rightType: number;
+  } | null>(null);
   const [page, setPage] = useState(1);
   const [sort, setSort] = useState<SortState | null>(null);
   const [filterForm, setFilterForm] = useState<ParcelFilter>(EMPTY_FILTER);
@@ -741,6 +750,34 @@ export function ParcelsTab({
                           )}
                         </td>
                         <td className="px-4 py-2.5">
+                          {/* Дэлгэрэнгүй хуудастай ижил дүрэм: гадаад рольд харагдахгүй;
+                              баталгаажсан чөлөөлөлт, эцсийн төлөвт идэвхгүй. */}
+                          {!isExternal ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setSyncTarget({ parcelUuid: p.id, parcelCode: p.parcel_id, rightType: p.right_type })
+                              }
+                              disabled={
+                                syncTarget !== null || isAcqLocked || statusRules(p.status_id ?? p.status).is_final
+                              }
+                              title={
+                                isAcqLocked
+                                  ? "Чөлөөлөлт баталгаажсан тул мэдээлэл дуудах боломжгүй"
+                                  : statusRules(p.status_id ?? p.status).is_final
+                                    ? "Нэгж талбар эцсийн төлөвтэй тул мэдээлэл дуудах боломжгүй"
+                                    : "Мэдээлэл дуудах"
+                              }
+                              aria-label="Мэдээлэл дуудах"
+                              className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-[#0acf97]/10 text-[#0acf97] transition-colors hover:bg-[#0acf97]/20 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-[#0acf97]/10"
+                            >
+                              <Download className="h-3.5 w-3.5" />
+                            </button>
+                          ) : (
+                            <span className="text-[11px] text-slate-400">—</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-2.5">
                           <div className="flex items-center gap-1.5">
                             {locked ? (
                               <span className="inline-flex items-center gap-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-600 px-2.5 py-1 text-[11px] font-medium cursor-not-allowed select-none">
@@ -981,6 +1018,16 @@ export function ParcelsTab({
             </div>
           </div>
         </div>
+      )}
+      {syncTarget && (
+        <ParcelSyncDialog
+          acqId={id}
+          {...syncTarget}
+          onClose={(finished) => {
+            setSyncTarget(null);
+            if (finished) queryClient.invalidateQueries({ queryKey: ["land-parcels", id] });
+          }}
+        />
       )}
       <ConfirmDialog
         open={!!pendingConfirm}

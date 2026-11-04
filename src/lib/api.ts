@@ -144,6 +144,8 @@ type ReportListParams = {
   compensation_type?: string
   general_category_id?: number
   sub_category_id?: number
+  sort?: string
+  order?: 'asc' | 'desc'
 }
 
 type LegacyParcel = Omit<Parcel, 'right_type' | 'compensation_paid'> & {
@@ -530,7 +532,7 @@ export const authApi = {
 
 // ── Users ────────────────────────────────────────────
 export const usersApi = {
-  list: (params?: { page?: number; page_size?: number; search?: string; role?: string; is_active?: boolean }) =>
+  list: (params?: { page?: number; page_size?: number; search?: string; role?: string; is_active?: boolean; sort?: string; order?: 'asc' | 'desc' }) =>
     api.get<PaginatedResponse<User>>('/users', { params }).then(r => ({
       ...r.data,
       data: (r.data.data ?? []).map(normalizeUser),
@@ -803,6 +805,8 @@ export const auditApi = {
     parcel_id?: string
     created_from?: string
     created_to?: string
+    sort?: string
+    order?: 'asc' | 'desc'
   }) =>
     api.get<PaginatedResponse<AuditLog>>('/audit-logs', { params }).then(r => r.data),
 }
@@ -1026,7 +1030,7 @@ export const landApi = {
     api.delete(`/land-acquisitions/${acqId}/compensations/${compId}/grant`),
   setParcelCompensation: (acqId: string, parcelId: string, paid: boolean) =>
     api.put(`/land-acquisitions/${acqId}/parcels/${parcelId}/compensation`, { paid }).then(r => r.data),
-  listAllCompensations: (params?: { status?: string; search?: string; acquisition_id?: string; page?: number; page_size?: number }) =>
+  listAllCompensations: (params?: { status?: string; search?: string; acquisition_id?: string; page?: number; page_size?: number; sort?: string; order?: 'asc' | 'desc' }) =>
     api.get<PaginatedResponse<GlobalCompensation>>('/compensations', { params }).then(r => r.data),
   getGlobalCompensation: (id: string) =>
     api.get<ApiResponse<GlobalCompensation>>(`/compensations/${id}`).then(r => r.data.data),
@@ -1432,7 +1436,7 @@ export const parcelSurveyApi = {
   // Хариултыг хоосолно — бүртгэл нэгж талбартайгаа үлдэнэ.
   clear: (parcelUuid: string) =>
     api.delete(`/parcels/${parcelUuid}/survey`),
-  list: (params?: { page?: number; page_size?: number; acquisition_id?: string; parcel_id?: string; answered?: boolean }) =>
+  list: (params?: { page?: number; page_size?: number; acquisition_id?: string; parcel_id?: string; answered?: boolean; sort?: string; order?: 'asc' | 'desc' }) =>
     api.get<PaginatedResponse<ParcelSurveyRow>>('/parcel-surveys', { params }).then(r => r.data),
   // acquisition_ids — давтан `acquisition_id` болж очно (хоосон бол бүх нэгж талбар).
   summary: (params?: { acquisition_ids?: string[]; parcel_id?: string }, opts?: { silent?: boolean }) => {
@@ -1485,6 +1489,8 @@ function reportQueryString(params?: ReportListParams): string {
   if (params?.compensation_type) q.set('compensation_type', params.compensation_type)
   if (params?.general_category_id) q.set('general_category_id', String(params.general_category_id))
   if (params?.sub_category_id) q.set('sub_category_id', String(params.sub_category_id))
+  if (params?.sort) q.set('sort', params.sort)
+  if (params?.order) q.set('order', params.order)
   return q.toString()
 }
 
@@ -1723,6 +1729,8 @@ export type DecisionDraftListParams = {
   funding_source_id?: string
   work_type_id?: number
   budget_id?: number
+  sort?: string
+  order?: 'asc' | 'desc'
 }
 
 // parcelListSearchParams-ийн адил — хоосон/0 утгыг query-д огт оруулахгүй.
@@ -1743,6 +1751,8 @@ function decisionDraftSearchParams(params?: DecisionDraftListParams): URLSearchP
   if (params.funding_source_id) q.set('funding_source_id', params.funding_source_id)
   if (params.work_type_id) q.set('work_type_id', String(params.work_type_id))
   if (params.budget_id) q.set('budget_id', String(params.budget_id))
+  if (params.sort) q.set('sort', params.sort)
+  if (params.order) q.set('order', params.order)
   return q
 }
 

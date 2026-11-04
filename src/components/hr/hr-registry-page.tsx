@@ -19,6 +19,7 @@ import type { Department, Employee, Organization, Person, Position } from "@/typ
 import { BadgeCheck, Building2, IdCard, Network, Pencil, Plus, Search, Trash2, UserCog, X } from "lucide-react";
 import { toast } from "sonner";
 import { ConfirmDialog, type PendingConfirm } from "@/components/ui/confirm-dialog";
+import { SortButton, ariaSort, useClientSort } from "@/components/ui/sortable-table-head";
 
 type Mode = "organization" | "department" | "position" | "person" | "employee";
 type Row = Organization | Department | Position | Person | Employee;
@@ -153,8 +154,16 @@ export function HRRegistryPage({ mode }: { mode: Mode }) {
   const positions = useQuery({ queryKey: ["hr", "positions", "select"], queryFn: () => positionApi.list({ page_size: 100 }), enabled: mode === "employee" });
   const people = useQuery({ queryKey: ["hr", "persons", "select", personSearch], queryFn: () => personApi.list({ search: personSearch.trim() || undefined, page_size: 50 }), enabled: mode === "employee" && formOpen && !form.new_person });
 
-  const rows = listQuery.data?.data ?? [];
   const cols = columns[mode];
+  // Жагсаалт нэг дор (page_size 100) ирдэг тул browser дээр эрэмбэлнэ.
+  // Нэрийн багана нь rowTitle-аар (хүн/ажилтны нэр нийлмэл) харьцуулагдана.
+  const { sorted: rows, sort, onSort } = useClientSort<Row>(
+    listQuery.data?.data ?? [],
+    (row, key) =>
+      key === cols[0].key
+        ? rowTitle(row, mode)
+        : ((row as unknown as Record<string, string | number | null | undefined>)[key]),
+  );
   // Үйлдлийн багана нь засах/устгах эрхгүй хэрэглэгчид хоосон харагдахгүй.
   const showActions = perms.update || perms.del;
   const colSpan = cols.length + (showActions ? 1 : 0);
@@ -343,9 +352,10 @@ export function HRRegistryPage({ mode }: { mode: Mode }) {
                   {cols.map((c) => (
                     <th
                       key={c.key}
+                      aria-sort={ariaSort(sort, c.key)}
                       className={`px-5 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 ${c.hideSm ? "hidden md:table-cell" : ""}`}
                     >
-                      {c.label}
+                      <SortButton label={c.label} sortKey={c.key} sort={sort} onSort={onSort} />
                     </th>
                   ))}
                   {showActions && <th className="w-24 px-5 py-3 text-right text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Үйлдэл</th>}

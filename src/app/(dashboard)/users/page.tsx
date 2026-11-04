@@ -37,6 +37,12 @@ import { EmployeeSelect } from "@/components/ui/employee-select";
 import { searchOnEnter } from "@/components/ui/search-on-enter";
 import { RefreshButton } from "@/components/ui/refresh-button";
 import { SearchButton } from "@/components/ui/search-button";
+import {
+  SortableHeaderRow,
+  nextSortState,
+  type SortColumn,
+  type SortState,
+} from "@/components/ui/sortable-table-head";
 
 const PAGE_SIZE = 20;
 
@@ -119,16 +125,17 @@ const primaryBtn =
 const secondaryBtn =
   "rounded-lg border border-slate-200 dark:border-[#37394d] bg-white dark:bg-[#1e1f27] px-4 py-2 text-[13px] font-medium text-slate-600 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-500 transition-colors";
 
-const HEADERS = [
-  "Хэрэглэгч",
-  "Хэрэглэгчийн нэр",
-  "Ажилтан",
-  "Алба, хэлтэс",
-  "Албан тушаал",
-  "Имэйл",
-  "Роль",
-  "Идэвхитэй",
-  "",
+// key — backend-ийн userSortColumns-ийн түлхүүр.
+const HEADERS: SortColumn[] = [
+  { label: "Хэрэглэгч", key: "name" },
+  { label: "Хэрэглэгчийн нэр", key: "username" },
+  { label: "Ажилтан", key: "employee" },
+  { label: "Алба, хэлтэс", key: "department" },
+  { label: "Албан тушаал", key: "position" },
+  { label: "Имэйл", key: "email" },
+  { label: "Роль" },
+  { label: "Идэвхитэй", key: "is_active" },
+  { label: "" },
 ];
 
 /** Роль сонгогч — эрх нэмэгдүүлэлт хийж болох ролийг сонгуулахгүй. */
@@ -227,6 +234,12 @@ export default function UsersPage() {
   const [filter, setFilter] = useState<UserFilter>(EMPTY_FILTER);
   const [searchTick, setSearchTick] = useState(0);
   const [page, setPage] = useState(1);
+  const [sort, setSort] = useState<SortState | null>(null);
+
+  function applySort(key: string) {
+    setSort((cur) => nextSortState(cur, key));
+    setPage(1);
+  }
   const queryClient = useQueryClient();
 
   function applySearch() {
@@ -268,7 +281,7 @@ export default function UsersPage() {
   }, []);
 
   const { data, isLoading, isError, error } = useQuery({
-    queryKey: ["users", filter, page, searchTick],
+    queryKey: ["users", filter, page, searchTick, sort],
     queryFn: () =>
       usersApi.list({
         page,
@@ -276,6 +289,8 @@ export default function UsersPage() {
         search: filter.search || undefined,
         role: filter.role || undefined,
         is_active: filter.is_active ? filter.is_active === "true" : undefined,
+        sort: sort?.by,
+        order: sort?.dir,
       }),
     enabled: ready && perms.view,
   });
@@ -918,23 +933,20 @@ export default function UsersPage() {
           <div className="overflow-x-auto">
             <table className="w-full text-[13px]">
               <thead>
-                <tr className="border-b border-slate-100 bg-slate-50/50 dark:border-[#37394d] dark:bg-[#1a1d20]">
-                  {HEADERS.map((h, i) => (
-                    <th
-                      key={h || `col-${i}`}
-                      className="px-5 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500"
-                    >
-                      {h}
-                    </th>
-                  ))}
-                </tr>
+                <SortableHeaderRow
+                  columns={HEADERS}
+                  sort={sort}
+                  onSort={applySort}
+                  thClassName="px-5 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500"
+                  className="border-b border-slate-100 bg-slate-50/50 dark:border-[#37394d] dark:bg-[#1a1d20]"
+                />
               </thead>
               <tbody className="divide-y divide-slate-50 dark:divide-[#37394d]">
                 {isLoading ? (
                   [...Array(5)].map((_, i) => (
                     <tr key={i} className="animate-pulse">
                       {HEADERS.map((h, j) => (
-                        <td key={h || `c-${j}`} className="px-5 py-4">
+                        <td key={h.label || `c-${j}`} className="px-5 py-4">
                           <div className="h-4 rounded bg-slate-100 dark:bg-[#252630]" />
                         </td>
                       ))}

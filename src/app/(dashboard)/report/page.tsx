@@ -31,34 +31,42 @@ import { YEAR_OPTIONS as SHARED_YEAR_OPTIONS } from "@/components/ui/year-multi-
 import { AbbrevAmount, AmountHint } from "@/components/ui/amount-hint";
 import { RefreshButton } from "@/components/ui/refresh-button";
 import { SearchButton } from "@/components/ui/search-button";
+import {
+  SortButton,
+  ariaSort,
+  nextSortState,
+  type SortState,
+} from "@/components/ui/sortable-table-head";
 
 // Тайлангийн хүснэгтийн толгойг татаж буй Excel тайлангийн (report_template.xlsx)
 // толгойтой яг ижилхэн байлгана — эх сурвалж: тухайн xlsx-ийн B2:S3 нүднүүд.
-const REPORT_TABLE_GROUP_HEADERS: { label: string; colSpan?: number; rowSpan?: number }[] = [
+// sortKey — backend-ийн reportParcelSortColumns-ийн түлхүүр (байхгүй бол
+// тухайн багана эрэмбэлэгдэхгүй; бүлгийн толгой ч мөн адил).
+const REPORT_TABLE_GROUP_HEADERS: { label: string; colSpan?: number; rowSpan?: number; sortKey?: string }[] = [
   { label: "№", rowSpan: 2 },
-  { label: "Бүтээн байгуулалтын төрөл", rowSpan: 2 },
-  { label: "Бүтээн байгуулалтын ажлын нэр", rowSpan: 2 },
-  { label: "Нөхөх олговор олгосон НЗД-ын захирамжийн огноо дугаар", rowSpan: 2 },
-  { label: "Газар өмчлөгч, эзэмшигчийн нэр, регистрийн дугаар", rowSpan: 2 },
+  { label: "Бүтээн байгуулалтын төрөл", rowSpan: 2, sortKey: "construction_type" },
+  { label: "Бүтээн байгуулалтын ажлын нэр", rowSpan: 2, sortKey: "acquisition_name" },
+  { label: "Нөхөх олговор олгосон НЗД-ын захирамжийн огноо дугаар", rowSpan: 2, sortKey: "decree_date" },
+  { label: "Газар өмчлөгч, эзэмшигчийн нэр, регистрийн дугаар", rowSpan: 2, sortKey: "holder" },
   { label: "Хаяг", rowSpan: 2 },
-  { label: "Нэгж талбарын дугаар", rowSpan: 2 },
-  { label: "Үндсэн талбайн хэмжээ /м2/", rowSpan: 2 },
-  { label: "Эдэлбэрийн хэлбэр", rowSpan: 2 },
+  { label: "Нэгж талбарын дугаар", rowSpan: 2, sortKey: "parcel_id" },
+  { label: "Үндсэн талбайн хэмжээ /м2/", rowSpan: 2, sortKey: "area_m2" },
+  { label: "Эдэлбэрийн хэлбэр", rowSpan: 2, sortKey: "right_type" },
   { label: "Нөлөөлөлд өртсөн газрын үнэлгээ", colSpan: 2 },
   { label: "Хөрөнгийн нөхөх олговрын хэмжээ, үнэ /төгрөг/", colSpan: 2 },
-  { label: "Нийт нөхөх олговор /төгрөг/", rowSpan: 2 },
-  { label: "Үлдэх газрын хэмжээ /м2/", rowSpan: 2 },
+  { label: "Нийт нөхөх олговор /төгрөг/", rowSpan: 2, sortKey: "total_comp" },
+  { label: "Үлдэх газрын хэмжээ /м2/", rowSpan: 2, sortKey: "remaining_area_m2" },
   { label: "Мэдээллийн санд өөрчлөлт хийгдсэн байдал", colSpan: 3 },
 ];
 
-const REPORT_TABLE_SUB_HEADERS = [
-  "Хэмжээ /м2/",
-  "Үнэ /төгрөг/",
-  "Үл хөдлөх хөрөнгө",
-  "Эд хөрөнгө",
-  "Мэдээллийн санд өөрчлөлт орсон эсхүл устгагдсан эсэх",
-  "Өөрчлөгдсөн нэгж талбарын дугаар",
-  "Талбайн хэмжээ",
+const REPORT_TABLE_SUB_HEADERS: { label: string; sortKey?: string }[] = [
+  { label: "Хэмжээ /м2/", sortKey: "acquisition_area_m2" },
+  { label: "Үнэ /төгрөг/", sortKey: "land_comp" },
+  { label: "Үл хөдлөх хөрөнгө", sortKey: "real_state_comp" },
+  { label: "Эд хөрөнгө", sortKey: "property_comp" },
+  { label: "Мэдээллийн санд өөрчлөлт орсон эсхүл устгагдсан эсэх", sortKey: "db_changed" },
+  { label: "Өөрчлөгдсөн нэгж талбарын дугаар", sortKey: "changed_parcel_id" },
+  { label: "Талбайн хэмжээ" },
 ];
 
 const REPORT_TABLE_COLUMN_COUNT = 18;
@@ -589,6 +597,14 @@ export default function ReportPage() {
 
   // Query state — "Хайх" дарахад л шинэчлэгдэнэ, API руу илгээнэ
   const [page, setPage] = useState(1);
+  // Эрэмбэ нь зөвхөн жагсаалтад — summary/Excel-ийн filter-т оруулахгүй
+  // (эс бөгөөс багана дарах бүрт статистик дахин татагдана).
+  const [sort, setSort] = useState<SortState | null>(null);
+
+  function applySort(key: string) {
+    setSort((cur) => nextSortState(cur, key));
+    setPage(1);
+  }
   const [planCode, setPlanCode] = useState("");
   const [acqId, setAcqId] = useState("");
   const [acqName, setAcqName] = useState("");
@@ -647,8 +663,8 @@ export default function ReportPage() {
   };
 
   const { data, isLoading } = useQuery({
-    queryKey: ["report-parcel-list", filter],
-    queryFn: () => reportApi.list(filter),
+    queryKey: ["report-parcel-list", filter, sort],
+    queryFn: () => reportApi.list({ ...filter, sort: sort?.by, order: sort?.dir }),
   });
 
   const parcels: ReportParcelRow[] = data?.data ?? [];
@@ -1146,19 +1162,29 @@ export default function ReportPage() {
                     key={h.label}
                     rowSpan={h.rowSpan}
                     colSpan={h.colSpan}
+                    aria-sort={h.sortKey ? ariaSort(sort, h.sortKey) : undefined}
                     className="px-3 py-2 text-center text-[10px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 align-bottom border border-slate-200 dark:border-[#37394d]"
                   >
-                    {h.label}
+                    {h.sortKey ? (
+                      <SortButton label={h.label} sortKey={h.sortKey} sort={sort} onSort={applySort} className="text-center" />
+                    ) : (
+                      h.label
+                    )}
                   </th>
                 ))}
               </tr>
               <tr className="bg-slate-50/50 dark:bg-[#1a1d20]">
                 {REPORT_TABLE_SUB_HEADERS.map((h) => (
                   <th
-                    key={h}
+                    key={h.label}
+                    aria-sort={h.sortKey ? ariaSort(sort, h.sortKey) : undefined}
                     className="px-3 py-2 text-center text-[10px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-[#37394d]"
                   >
-                    {h}
+                    {h.sortKey ? (
+                      <SortButton label={h.label} sortKey={h.sortKey} sort={sort} onSort={applySort} className="text-center" />
+                    ) : (
+                      h.label
+                    )}
                   </th>
                 ))}
               </tr>

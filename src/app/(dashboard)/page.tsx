@@ -71,7 +71,6 @@ const MapView = dynamic(() => import("@/components/map/map-view"), {
 /** Тогтвортой хоосон утга — `?? []` нь рендер бүрд шинэ массив үүсгэхээс сэргийлнэ. */
 const EMPTY_STATUS_LIST: ParcelStatus[] = [];
 
-const CURRENT_YEAR = new Date().getFullYear();
 // Оны сонголт — БҮХ дэлгэцэд нэг ижил муж (2010-оос хойш).
 const YEAR_OPTIONS = SHARED_YEAR_OPTIONS;
 
@@ -1104,7 +1103,7 @@ export default function DashboardPage() {
   const [inAcqId,        setInAcqId]        = useState("");
   const [inAcqName,      setInAcqName]      = useState("");
   const [inPlanCode,     setInPlanCode]     = useState("");
-  const [inYears,        setInYears]        = useState<string[]>([String(CURRENT_YEAR)]);
+  const [inYears,        setInYears]        = useState<string[]>([]);
   const [inGenCatId,     setInGenCatId]     = useState(0);
   const [inSubCatId,     setInSubCatId]     = useState(0);
   const [inEmployeeId,   setInEmployeeId]   = useState("");
@@ -1135,7 +1134,7 @@ export default function DashboardPage() {
 
   /* Applied filter — хуудас нээгдэхэд одоогийн он автоматаар сонгогдоно */
   const [appliedFilter, setAppliedFilter] = useState({
-    acqId: "", acqName: "", planCode: "", years: [String(CURRENT_YEAR)], genCatId: 0, subCatId: 0,
+    acqId: "", acqName: "", planCode: "", years: [] as string[], genCatId: 0, subCatId: 0,
     employeeId: "", employeeName: "", au2Code: "",
   });
 
@@ -1160,8 +1159,8 @@ export default function DashboardPage() {
     setAppliedFilter({ acqId: inAcqId, acqName: inAcqName, planCode: inPlanCode, years: inYears, genCatId: inGenCatId, subCatId: inSubCatId, employeeId: inEmployeeId, employeeName: inEmployeeName, au2Code: inAu2Code });
   };
   const handleReset = () => {
-    setInAcqId(""); setInAcqName(""); setInPlanCode(""); setInYears([String(CURRENT_YEAR)]); setInGenCatId(0); setInSubCatId(0); setInEmployeeId(""); setInEmployeeName(""); setInAu2Code("");
-    setAppliedFilter({ acqId: "", acqName: "", planCode: "", years: [String(CURRENT_YEAR)], genCatId: 0, subCatId: 0, employeeId: "", employeeName: "", au2Code: "" });
+    setInAcqId(""); setInAcqName(""); setInPlanCode(""); setInYears([]); setInGenCatId(0); setInSubCatId(0); setInEmployeeId(""); setInEmployeeName(""); setInAu2Code("");
+    setAppliedFilter({ acqId: "", acqName: "", planCode: "", years: [], genCatId: 0, subCatId: 0, employeeId: "", employeeName: "", au2Code: "" });
   };
 
   /* ── ГЧХ АЖЛЫН МЭДЭЭ (Excel) — ХЭРЭГЛЭСЭН шүүлтээр татна ──────────────

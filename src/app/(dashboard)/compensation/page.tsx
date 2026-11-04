@@ -12,6 +12,12 @@ import { AcquisitionSelect } from "@/app/(dashboard)/parcel/_components/acquisit
 import { searchOnEnter } from "@/components/ui/search-on-enter";
 import { RefreshButton } from "@/components/ui/refresh-button";
 import { SearchButton } from "@/components/ui/search-button";
+import {
+  SortableHeaderRow,
+  nextSortState,
+  type SortColumn,
+  type SortState,
+} from "@/components/ui/sortable-table-head";
 
 type CompStatus = "pending" | "approved" | "rejected" | "";
 type CompType   = "cash" | "land_grant" | "";
@@ -31,6 +37,18 @@ function fmtMoney(n: number) {
   return new Intl.NumberFormat("mn-MN").format(Math.round(n)) + "₮";
 }
 
+// key — backend-ийн globalCompensationSortColumns-ийн түлхүүр.
+const HEADERS: SortColumn[] = [
+  { label: "Нэгж талбар", key: "parcel_id" },
+  { label: "Эзэмшигч", key: "holder" },
+  { label: "Регистр", key: "register_no" },
+  { label: "Олборлолт", key: "acquisition_name" },
+  { label: "Хэлбэр", key: "compensation_type" },
+  { label: "Дүн", key: "amount" },
+  { label: "Огноо", key: "compensation_date" },
+  { label: "Төлөв", key: "status" },
+];
+
 const PAGE_SIZE = 20;
 
 const EMPTY = { search: "", acquisition_id: "", type: "" as CompType, status: "" as CompStatus };
@@ -40,6 +58,12 @@ export default function CompensationsPage() {
   const [filter, setFilter]     = useState(EMPTY);
   const [page, setPage]         = useState(1);
   const [searchTick, setSearchTick] = useState(0);
+  const [sort, setSort]         = useState<SortState | null>(null);
+
+  function applySort(key: string) {
+    setSort((cur) => nextSortState(cur, key));
+    setPage(1);
+  }
 
   const inp =
     "h-9 rounded-lg border border-slate-200 dark:border-white/[0.08] bg-white dark:bg-[#1e1f27] px-3 text-[13px] text-slate-800 dark:text-slate-200 outline-none focus:border-[#02c0ce] focus:ring-2 focus:ring-[#02c0ce]/15 transition-all";
@@ -60,7 +84,7 @@ export default function CompensationsPage() {
   const hasFilter = !!(draft.search || draft.acquisition_id || draft.type || draft.status);
 
   const { data, isLoading } = useQuery({
-    queryKey: ["global-compensations", filter, page, searchTick],
+    queryKey: ["global-compensations", filter, page, searchTick, sort],
     queryFn: () =>
       landApi.listAllCompensations({
         status:         filter.status || undefined,
@@ -68,6 +92,8 @@ export default function CompensationsPage() {
         acquisition_id: filter.acquisition_id || undefined,
         page,
         page_size: PAGE_SIZE,
+        sort:  sort?.by,
+        order: sort?.dir,
       }),
     placeholderData: (prev) => prev,
   });
@@ -221,16 +247,13 @@ export default function CompensationsPage() {
           <div className="overflow-x-auto">
             <table className="w-full text-[13px]">
               <thead>
-                <tr className="border-b border-slate-100 dark:border-[#37394d] bg-slate-50/80 dark:bg-[#1a1d20]">
-                  {["Нэгж талбар", "Эзэмшигч", "Регистр", "Олборлолт", "Хэлбэр", "Дүн", "Огноо", "Төлөв"].map((h) => (
-                    <th
-                      key={h}
-                      className="px-5 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 whitespace-nowrap"
-                    >
-                      {h}
-                    </th>
-                  ))}
-                </tr>
+                <SortableHeaderRow
+                  columns={HEADERS}
+                  sort={sort}
+                  onSort={applySort}
+                  thClassName="px-5 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 whitespace-nowrap"
+                  className="border-b border-slate-100 dark:border-[#37394d] bg-slate-50/80 dark:bg-[#1a1d20]"
+                />
               </thead>
               <tbody className="divide-y divide-slate-50 dark:divide-[#37394d]">
                 {rows.map((comp) => {
