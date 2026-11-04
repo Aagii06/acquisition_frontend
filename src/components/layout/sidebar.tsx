@@ -64,6 +64,8 @@ const NAV_MAIN = [
   { href: "/parcel", label: "Нэгж талбар", icon: Grid2x2 },
   // Чөлөөлөгдсөн газрын судалгааны дүн — land:read эрхтэй ажилтанд.
   { href: "/parcel_survey", label: "Газрын судалгаа", icon: ClipboardList },
+  // Буулгалтын мэдээлэл — shapefile-аар оруулсан газрууд (үндсэн нэгж талбараас тусдаа).
+  { href: "/land_release", label: "Буулгалтын мэдээлэл", icon: Layers },
   // «Нөхөх олговрын түүх» цэсийг хассан — хуудас нь хуваарилалтаар хязгаарлагдахгүй
   // бүх чөлөөлөлтийн олговрыг харуулдаг байв. Мэдэгдлээс дэлгэрэнгүй
   // (/compensation/[id]) руу орох холбоос хэвээр.
@@ -321,7 +323,8 @@ export function Sidebar() {
     NAV_MAIN.filter(
       (item) =>
         item.href !== "/legacy_import" &&
-        item.href !== "/parcel_survey",
+        item.href !== "/parcel_survey" &&
+        item.href !== "/land_release",
     ),
   );
   // «Захирамж» бүлэг — decision:read эрхтэй ажилтанд л харагдана.
@@ -369,12 +372,15 @@ export function Sidebar() {
     const showReport = isSeniorSpecialist();
     const showImport = canImportLegacyData();
     const showSurvey = hasPermission("land:read");
+    // Буулгалт — backend нь land:read шаардаж, мэргэжлийн байгууллагыг хаадаг.
+    const showRelease = hasPermission("land:read") && !isExternalSpecialRole();
     setMainNav(
       NAV_MAIN.filter(
         (item) =>
           (item.href !== "/report" || showReport) &&
           (item.href !== "/legacy_import" || showImport) &&
-          (item.href !== "/parcel_survey" || showSurvey),
+          (item.href !== "/parcel_survey" || showSurvey) &&
+          (item.href !== "/land_release" || showRelease),
       ),
     );
     setReady(true);

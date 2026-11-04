@@ -2008,3 +2008,156 @@ export interface FundingSourceOption {
   amount?: number;
   currency: string;
 }
+
+// ── Буулгалтын мэдээлэл (land_release*, үндсэн нэгж талбараас тусдаа) ──
+export const LAND_RELEASE_STATUS_PLANNING = 1;
+export const LAND_RELEASE_STATUS_RELEASED = 2;
+export const LAND_RELEASE_STATUS_CANCELLED = 3;
+
+export const LAND_RELEASE_STATUS_LABELS: Record<number, string> = {
+  1: "Төлөвлөж байгаа",
+  2: "Захирамж гарч чөлөөлсөн",
+  3: "Хүчингүй",
+};
+
+// Газрын зураг/график/шошгоны өнгө (dataviz validator — гэрэл, бараан хоёуланд PASS).
+export const LAND_RELEASE_STATUS_COLORS: Record<number, string> = {
+  1: "#d97706",
+  2: "#0d9488",
+  3: "#e11d48",
+};
+
+/** Системийн дугаар — «Б-00012». */
+export function landReleaseNo(n: number): string {
+  return `Б-${String(n).padStart(5, "0")}`;
+}
+
+/** Буулгасан байгууламжийн төрөл. */
+export interface LandReleaseStructureType {
+  id: number;
+  name: string;
+  created_at: string;
+  created_by: string;
+}
+
+/** Газрын зураг — оруулсан зургуудыг нэгтгэсэн НЭГ PDF (зураг бүр нэг хуудас, JPEG). */
+export interface LandReleasePhoto {
+  id: string;
+  file_name: string;
+  file_url: string;
+  size_bytes: number;
+  page_count: number;
+  created_at: string;
+  created_by: string;
+  /** Энэ зурагтай холбогдсон газрын тоо (олноор оруулсан бол > 1). */
+  release_count: number;
+}
+
+export interface LandReleaseDecree {
+  id: string;
+  decree_number: string;
+  decree_date?: string;
+  file_name: string;
+  file_type: string;
+  file_url: string;
+  size_bytes: number;
+  created_at: string;
+  created_by: string;
+  release_count: number;
+}
+
+export interface LandReleaseHistory {
+  id: string;
+  from_status?: number;
+  to_status: number;
+  decree_number?: string;
+  note: string;
+  changed_at: string;
+  changed_by: string;
+}
+
+export interface LandRelease {
+  id: string;
+  release_no: number;
+  import_id?: string;
+  name: string;
+  description: string;
+  status: number;
+  status_name: string;
+  /** Буулгасан байгууламжийн төрөл — өмнө оруулсанд байхгүй. */
+  structure_type_id?: number;
+  structure_type_name: string;
+  /** Сум/дүүрэг, аймаг/хот — оруулахад байршлаар тодорхойлж хадгалсан (давхцаагүй бол хоосон). */
+  au1_code: string;
+  au1_name: string;
+  au2_code: string;
+  au2_name: string;
+  area_m2: number;
+  source_file: string;
+  source_index: number;
+  geometry_wkt?: string;
+  created_at: string;
+  created_by: string;
+  updated_at: string;
+  updated_by: string;
+  decree?: LandReleaseDecree;
+  photos?: LandReleasePhoto[];
+  history?: LandReleaseHistory[];
+}
+
+export interface LandReleaseMapItem {
+  id: string;
+  release_no: number;
+  name: string;
+  status: number;
+  geometry_wkt: string;
+}
+
+export interface LandReleaseStats {
+  total: number;
+  total_area_m2: number;
+  decree_count: number;
+  by_status: { status: number; count: number; area_m2: number }[];
+  by_year: {
+    year: number;
+    planning: number;
+    released: number;
+    cancelled: number;
+    area_m2: number;
+    decrees: number;
+  }[];
+  /** Сум/дүүргээр — оруулахад хадгалсан сум/дүүргээр. */
+  by_district: {
+    /** Хоосон — ямар ч сум/дүүрэгтэй давхцаагүй. */
+    code: string;
+    name: string;
+    au1_name: string;
+    count: number;
+    planning: number;
+    released: number;
+    cancelled: number;
+    area_m2: number;
+  }[];
+  /** Сум/дүүрэг × он. */
+  by_district_year: { code: string; year: number; count: number; area_m2: number }[];
+  /** Газартай БҮХ сум/дүүрэг (шүүлтгүй, кодоор) — графикийн өнгийг тогтмол оноох. */
+  districts: { code: string; name: string; au1_name: string }[];
+  /** Бүх он (шүүлтгүй) — оны сонголтод. */
+  years: number[];
+}
+
+export interface LandReleaseFeature {
+  source_file: string;
+  source_index: number;
+  geometry_wkt: string;
+  area_m2: number;
+}
+
+export interface LandReleaseFilter {
+  search?: string;
+  status?: number;
+  year?: number;
+  structure_type_id?: number;
+  page?: number;
+  page_size?: number;
+}

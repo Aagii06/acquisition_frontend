@@ -78,6 +78,7 @@ import type {
   ValuationSubmission, ValuationSubmissionHistory, ValuationSnapshot,
   AssetSpecType, AssetCalcType,
   DecisionDraft, DecisionDraftParcel, DecisionDraftFundingLink, DecisionDraftProgressHistory, DecisionOption, FundingSourceOption,
+  LandRelease, LandReleaseFeature, LandReleaseFilter, LandReleaseMapItem, LandReleaseStats, LandReleaseStructureType,
 } from '@/types'
 
 // Backend алдаа / timeout / сүлжээ тасрах үед хэрэглэгчийг хуудаснаас ХӨӨХГҮЙ.
@@ -1873,6 +1874,86 @@ export const notificationApi = {
       .then(r => r.data.data?.count ?? 0),
   markRead: (id: string) => api.post(`/notifications/${id}/read`, undefined, { _silent: true }),
   markAllRead: () => api.post('/notifications/read-all', undefined, { _silent: true }),
+}
+
+// ── Буулгалтын мэдээлэл ──
+function landReleaseParams(f?: LandReleaseFilter) {
+  const sp = new URLSearchParams()
+  if (f?.search?.trim()) sp.set('search', f.search.trim())
+  if (f?.status) sp.set('status', String(f.status))
+  if (f?.year) sp.set('year', String(f.year))
+  if (f?.structure_type_id) sp.set('structure_type_id', String(f.structure_type_id))
+  if (f?.page) sp.set('page', String(f.page))
+  if (f?.page_size) sp.set('page_size', String(f.page_size))
+  const q = sp.toString()
+  return q ? `?${q}` : ''
+}
+
+export type LandReleaseDecreeInput = { decree_number: string; decree_date: string; file: File }
+
+function appendDecree(fd: FormData, decree?: LandReleaseDecreeInput | null) {
+  if (!decree) return
+  fd.append('decree_number', decree.decree_number)
+  fd.append('decree_date', decree.decree_date)
+  fd.append('decree_file', decree.file, decree.file.name)
+}
+
+const multipart = { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 0 }
+
+export const landReleaseApi = {
+  list: (f?: LandReleaseFilter) =>
+    api.get<PaginatedResponse<LandRelease>>(`/land-releases${landReleaseParams(f)}`).then(r => r.data),
+  map: (f?: LandReleaseFilter) =>
+    api.get<ApiResponse<LandReleaseMapItem[]>>(`/land-releases/map${landReleaseParams({ ...f, page: undefined, page_size: undefined })}`).then(r => r.data.data ?? []),
+  // Статистик — жагсаалт/газрын зурагтай ИЖИЛ шүүлтээр.
+  stats: (f?: LandReleaseFilter) =>
+    api.get<ApiResponse<LandReleaseStats>>(`/land-releases/stats${landReleaseParams({ ...f, page: undefined, page_size: undefined })}`).then(r => r.data.data),
+  get: (id: string) => api.get<ApiResponse<LandRelease>>(`/land-releases/${id}`).then(r => r.data.data),
+  // Файлуудыг уншиж (координатын систем шалгаж) газруудыг буцаана — хадгалахгүй.
+  // _silent — попап өөрийн уншиж буй төлөвийг харуулдаг тул бүтэн дэлгэцийн loader асаахгүй.
+  preview: (files: File[]) => {
+    const fd = new FormData()
+    files.forEach(f => fd.append('files', f, f.name))
+    return api.post<ApiResponse<LandReleaseFeature[]>>('/land-releases/preview', fd, { ...multipart, _silent: true }).then(r => r.data.data ?? [])
+  },
+  structureTypes: () =>
+    api.get<ApiResponse<LandReleaseStructureType[]>>('/land-releases/structure-types').then(r => r.data.data ?? []),
+  // structureType — байгаа төрөл (id) эсвэл ШИНЭ төрөл (name): шинэ нь хадгалахад нэмэгдэнэ.
+  create: (body: {
+    name: string; description: string; status: number; files: File[]
+    structureType: { id: number } | { name: string }
+    decree?: LandReleaseDecreeInput | null
+    // Зургуудаас (imagesToPdf) үүсгэсэн PDF — бүх газарт холбогдоно.
+    photo?: { file: File; pages: number } | null
+  }) => {
+    const fd = new FormData()
+    fd.append('name', body.name)
+    fd.append('description', body.description)
+    fd.append('status', String(body.status))
+    if ('id' in body.structureType) fd.append('structure_type_id', String(body.structureType.id))
+    else fd.append('structure_type_name', body.structureType.name)
+    body.files.forEach(f => fd.append('files', f, f.name))
+    appendDecree(fd, body.decree)
+    if (body.photo) {
+      fd.append('photo_file', body.photo.file, body.photo.file.name)
+      fd.append('photo_pages', String(body.photo.pages))
+    }
+    return api.post<ApiResponse<{ created: number }>>('/land-releases', fd, multipart).then(r => r.data.data)
+  },
+  // Газарт зураг нэмэх — зургуудаас (imagesToPdf) үүсгэсэн PDF.
+  addPhoto: (id: string, photo: { file: File; pages: number }) => {
+    const fd = new FormData()
+    fd.append('photo_file', photo.file, photo.file.name)
+    fd.append('photo_pages', String(photo.pages))
+    return api.post<ApiResponse<LandRelease>>(`/land-releases/${id}/photos`, fd, multipart).then(r => r.data.data)
+  },
+  changeStatus: (id: string, body: { status: number; note: string; decree?: LandReleaseDecreeInput | null }) => {
+    const fd = new FormData()
+    fd.append('status', String(body.status))
+    fd.append('note', body.note)
+    appendDecree(fd, body.decree)
+    return api.patch<ApiResponse<LandRelease>>(`/land-releases/${id}/status`, fd, multipart).then(r => r.data.data)
+  },
 }
 
 export default api
