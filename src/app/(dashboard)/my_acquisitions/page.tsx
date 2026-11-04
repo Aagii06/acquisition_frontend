@@ -10,6 +10,12 @@ import Link from "next/link";
 import { searchOnEnter } from "@/components/ui/search-on-enter";
 import { RefreshButton } from "@/components/ui/refresh-button";
 import { SearchButton } from "@/components/ui/search-button";
+import {
+  SortableHeaderRow,
+  nextSortState,
+  type SortColumn,
+  type SortState,
+} from "@/components/ui/sortable-table-head";
 
 const STATUS_CFG: Record<number, { color: string; bg: string }> = {
   1: { color: "#02c0ce", bg: "#02c0ce18" },
@@ -20,21 +26,28 @@ const STATUS_CFG: Record<number, { color: string; bg: string }> = {
 
 const PAGE_SIZE = 15;
 
-const HEADERS = [
-  "Төлөвлөгөө",
-  "Чөлөөлөлтийн нэр",
-  "Ерөнхий ангилал",
-  "Статус",
-  "Талбай",
-  "Эхлэх",
-  "Нэгж талбар",
-  "",
+// key — backend-ийн acquisitionSortColumns-ийн түлхүүр.
+const HEADERS: SortColumn[] = [
+  { label: "Төлөвлөгөө", key: "plan_code" },
+  { label: "Чөлөөлөлтийн нэр", key: "acquisition_name" },
+  { label: "Ерөнхий ангилал", key: "general_category" },
+  { label: "Статус", key: "status" },
+  { label: "Талбай", key: "area_m2" },
+  { label: "Эхлэх", key: "start_date" },
+  { label: "Нэгж талбар", key: "parcel_count" },
+  { label: "" },
 ];
 
 export default function MyAcquisitionsPage() {
   const [nameFilter, setNameFilter] = useState("");
   const [appliedName, setAppliedName] = useState("");
   const [page, setPage] = useState(1);
+  const [sort, setSort] = useState<SortState | null>(null);
+
+  function applySort(key: string) {
+    setSort((cur) => nextSortState(cur, key));
+    setPage(1);
+  }
 
   function applySearch() {
     setAppliedName(nameFilter);
@@ -48,12 +61,14 @@ export default function MyAcquisitionsPage() {
   }
 
   const { data: rawData, isLoading } = useQuery({
-    queryKey: ["my-land", page, appliedName],
+    queryKey: ["my-land", page, appliedName, sort],
     queryFn: () =>
       profApi.profListMyAcquisitions({
         page,
         page_size: PAGE_SIZE,
         acquisition_name: appliedName || undefined,
+        sort: sort?.by,
+        order: sort?.dir,
       }),
   });
 
@@ -101,16 +116,13 @@ export default function MyAcquisitionsPage() {
         <div className="overflow-x-auto">
           <table className="w-full text-[13px]">
             <thead>
-              <tr className="border-b border-slate-100 dark:border-[#37394d]">
-                {HEADERS.map((h) => (
-                  <th
-                    key={h}
-                    className="px-5 py-3 text-left text-[11px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider whitespace-nowrap"
-                  >
-                    {h}
-                  </th>
-                ))}
-              </tr>
+              <SortableHeaderRow
+                columns={HEADERS}
+                sort={sort}
+                onSort={applySort}
+                thClassName="px-5 py-3 text-left text-[11px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider whitespace-nowrap"
+                className="border-b border-slate-100 dark:border-[#37394d]"
+              />
             </thead>
             <tbody>
               {isLoading ? (

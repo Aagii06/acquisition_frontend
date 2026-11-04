@@ -19,8 +19,16 @@ export { validateParsed } from "./validate.ts";
  * Workbook-ийн загварыг таньж (шинэ: нэг sheet дээрх 3.1–5.1 хэсгүүд / хуучин: хүснэгт
  * бүр тусдаа sheet) тохирох задлагчаар уншина. Хуучин файл хэвээр ажиллана.
  */
-export function extractAnyLayout(wb: Workbook): Omit<ParsedValuation, "warnings"> {
-  const names = Object.keys(wb);
+export function extractAnyLayout(
+  wb: Workbook,
+  hidden: ReadonlySet<string> = new Set(),
+): Omit<ParsedValuation, "warnings"> {
+  // Нуугдсан (hidden) sheet-үүдийг загвар таних шийдвэрт оруулахгүй: шинэ "загвар-2025"
+  // файлууд дотроо хуучин загварын БӨГЛӨӨГҮЙ/жишээ sheet-үүдийг нууж хадгалдаг тул
+  // тэднээр нь хуучин загвар гэж андуурвал бүх файл ижил (жишээ) дүнтэй орж ирнэ.
+  const all = Object.keys(wb);
+  const visible = all.filter((n) => !hidden.has(n));
+  const names = visible.length ? visible : all;
   // ХУУЧИН загварыг УРЬТАЛНА: хүснэгт бүр тусдаа sheet дээр байгаа нь sheet нэрээр
   // танигдвал тэр замаар уншина. (Хуучин файлууд дотроо "ҮТ-загвар" гэсэн БӨГЛӨӨГҮЙ
   // нэг хуудсан загвар агуулж болох тул зөвхөн хэсгийн тоогоор шийдэж болохгүй.)
@@ -45,8 +53,8 @@ export function extractAnyLayout(wb: Workbook): Omit<ParsedValuation, "warnings"
 }
 
 /** Задлан авсан workbook-оос ParsedValuation (extract + validate) үүсгэх. */
-export function buildValuation(wb: Workbook): ParsedValuation {
-  const base = extractAnyLayout(wb);
+export function buildValuation(wb: Workbook, hidden?: ReadonlySet<string>): ParsedValuation {
+  const base = extractAnyLayout(wb, hidden);
   return { ...base, warnings: validateParsed(base) };
 }
 
@@ -59,6 +67,10 @@ export async function parseValuationFile(file: File): Promise<ParsedValuation> {
   const buf = await file.arrayBuffer();
   const wbRaw = XLSX.read(buf, { cellFormula: false, cellText: true, cellDates: false });
   const wb: Workbook = {};
+  // Hidden: 0 = харагдана, 1 = hidden, 2 = very hidden
+  const hidden = new Set(
+    (wbRaw.Workbook?.Sheets ?? []).filter((s) => s.Hidden && s.name).map((s) => s.name as string),
+  );
   for (const name of wbRaw.SheetNames) {
     const ws = wbRaw.Sheets[name];
     wb[name] = XLSX.utils.sheet_to_json(ws, {
@@ -68,7 +80,7 @@ export async function parseValuationFile(file: File): Promise<ParsedValuation> {
       raw: true,
     }) as Grid;
   }
-  return buildValuation(wb);
+  return buildValuation(wb, hidden);
 }
 
 /**

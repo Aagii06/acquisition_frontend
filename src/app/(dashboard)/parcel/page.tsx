@@ -1,17 +1,20 @@
 "use client";
 import { CompensationPaymentBadge } from "@/components/ui/compensation-payment-badge";
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { parcelApi, parcelStatusApi } from "@/lib/api";
-import { STATUS_LABELS, RIGHT_TYPE_LABELS } from "@/types";
+import { STATUS_LABELS, RIGHT_TYPE_LABELS, ACQ_STATUS } from "@/types";
 import type { ParcelStatus } from "@/types";
 import { StatusLabel } from "@/components/ui/status-label";
 import { formatDate, formatArea } from "@/lib/utils";
-import { Search, X } from "lucide-react";
+import { Download, Search, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AcquisitionSelect } from "./_components/acquisition_select";
 import { PlanSelect } from "./_components/plan_select";
+import { ParcelSyncDialog } from "./_components/parcel_sync_dialog";
+import { isExternalSpecialRole } from "@/lib/role-utils";
+import { useParcelStatusRules } from "@/lib/use-parcel-status-rules";
 import { notifyNavStart } from "@/lib/blocking-loader-state";
 import {
   SortableHeaderRow,
@@ -59,8 +62,16 @@ const COLUMNS: SortColumn[] = [
   // Олговрын дүн ба төлбөр олголтын хувь НЭГ баганад (дээр дүн, доор олголт).
   { label: "Нөхөн төлбөр", sublabel: "Төлбөр олголт", key: "compensation" },
   { label: "Төлөв", key: "status_id" },
+  { label: "Мэдээлэл" },
   { label: "" },
 ];
+
+type SyncTarget = {
+  acqId: string;
+  parcelUuid: string;
+  parcelCode: string;
+  rightType: number;
+};
 
 export default function ParcelListPage() {
   const router = useRouter();
@@ -76,6 +87,20 @@ export default function ParcelListPage() {
 
   const [filter, setFilter] = useState(EMPTY);
   const [page, setPage] = useState(1);
+  const queryClient = useQueryClient();
+  // «Мэдээлэл дуудах» — дэлгэрэнгүй хуудасны товчтой ИЖИЛ цонх. Мөр дарахад
+  // дэлгэрэнгүй рүү шилждэг тул цонхыг хүснэгтийн ГАДНА зурна.
+  const [syncTarget, setSyncTarget] = useState<SyncTarget | null>(null);
+  const statusRules = useParcelStatusRules();
+  // Дэлгэрэнгүй хуудастай ижил дүрэм: гадаад рольд товч харагдахгүй;
+  // баталгаажсан чөлөөлөлт, эцсийн төлөвтэй нэгж талбарт товч идэвхгүй.
+  const canSync = !isExternalSpecialRole();
+  const syncLockReason = (acqStatus: number, statusId: number): string | null =>
+    acqStatus === ACQ_STATUS.CONFIRMED
+      ? "Чөлөөлөлт баталгаажсан тул мэдээлэл дуудах боломжгүй"
+      : statusRules(statusId).is_final
+        ? "Нэгж талбар эцсийн төлөвтэй тул мэдээлэл дуудах боломжгүй"
+        : null;
   const [searchTick, setSearchTick] = useState(0);
   const [sort, setSort] = useState<SortState | null>(null);
   const PAGE_SIZE = 20;
@@ -383,6 +408,29 @@ export default function ParcelListPage() {
                         )}
                       </td>
                       <td className="px-4 py-3 align-top">
+                        {canSync ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setSyncTarget({
+                                acqId: p.acquisition_id,
+                                parcelUuid: p.id,
+                                parcelCode: p.parcel_id,
+                                rightType: p.right_type,
+                              })
+                            }
+                            disabled={syncTarget !== null || !!syncLockReason(p.acquisition_status, p.status_id)}
+                            title={syncLockReason(p.acquisition_status, p.status_id) ?? "Мэдээлэл дуудах"}
+                            aria-label="Мэдээлэл дуудах"
+                            className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-[#0acf97]/10 text-[#0acf97] transition-colors hover:bg-[#0acf97]/20 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-[#0acf97]/10"
+                          >
+                            <Download className="h-3.5 w-3.5" />
+                          </button>
+                        ) : (
+                          <span className="text-[11px] text-slate-300 dark:text-slate-600">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 align-top">
                         {/* prefetch=false — мөр бүрийн RSC prefetch browser-ийн 6 холболтыг дүүргэдэг */}
                         <Link
                           prefetch={false}
@@ -432,6 +480,15 @@ export default function ParcelListPage() {
           </div>
         )}
       </div>
+      {syncTarget && (
+        <ParcelSyncDialog
+          {...syncTarget}
+          onClose={(finished) => {
+            setSyncTarget(null);
+            if (finished) queryClient.invalidateQueries({ queryKey: ["global-parcels"] });
+          }}
+        />
+      )}
     </div>
   );
 }

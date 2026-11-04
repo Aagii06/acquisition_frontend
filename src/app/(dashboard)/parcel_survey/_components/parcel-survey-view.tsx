@@ -29,6 +29,12 @@ import { SurveyTab } from "../../parcel/[id]/_components/survey_tab";
 import { RefreshButton } from "@/components/ui/refresh-button";
 import { SearchButton } from "@/components/ui/search-button";
 import { AcquisitionSelect } from "../../parcel/_components/acquisition_select";
+import {
+  SortButton,
+  ariaSort,
+  nextSortState,
+  type SortState,
+} from "@/components/ui/sortable-table-head";
 
 const PAGE_SIZE = 20;
 
@@ -147,6 +153,12 @@ function SurveyModal({ row, canEdit, onClose }: { row: ParcelSurveyRow; canEdit:
 /** `acquisitionId` өгвөл зөвхөн тэр чөлөөлөлтийн нэгж талбаруудын судалгаа. */
 export function ParcelSurveyView({ acquisitionId: fixedAcquisitionId }: { acquisitionId?: string }) {
   const [page, setPage] = useState(1);
+  const [sort, setSort] = useState<SortState | null>(null);
+
+  function applySort(key: string) {
+    setSort((cur) => nextSortState(cur, key));
+    setPage(1);
+  }
   const [draftCode, setDraftCode] = useState("");
   const [parcelCode, setParcelCode] = useState("");
   const [answered, setAnswered] = useState<AnsweredFilter>("");
@@ -165,7 +177,7 @@ export function ParcelSurveyView({ acquisitionId: fixedAcquisitionId }: { acquis
     enabled: canView,
   });
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["parcel-surveys", "list", page, parcelCode, answered, acquisitionId],
+    queryKey: ["parcel-surveys", "list", page, parcelCode, answered, acquisitionId, sort],
     queryFn: () =>
       parcelSurveyApi.list({
         page,
@@ -173,6 +185,8 @@ export function ParcelSurveyView({ acquisitionId: fixedAcquisitionId }: { acquis
         acquisition_id: acquisitionId || undefined,
         parcel_id: parcelCode || undefined,
         answered: answered === "" ? undefined : answered === "true",
+        sort: sort?.by,
+        order: sort?.dir,
       }),
     enabled: canView,
   });
@@ -248,15 +262,26 @@ export function ParcelSurveyView({ acquisitionId: fixedAcquisitionId }: { acquis
           <table className="w-full min-w-[1080px] text-left">
             <thead className="border-b border-slate-100 bg-slate-50/70 text-[11px] uppercase tracking-wider text-slate-400 dark:border-white/[0.06] dark:bg-[#252630]/60 dark:text-slate-500">
               <tr>
-                <th className="px-5 py-3 font-semibold">Нэгж талбар</th>
-                {!fixedAcquisitionId && <th className="px-5 py-3 font-semibold">Чөлөөлөлт</th>}
+                {/* sortKey — backend-ийн parcelSurveySortColumns-ийн түлхүүр. */}
+                <th className="px-5 py-3 font-semibold" aria-sort={ariaSort(sort, "parcel_id")}>
+                  <SortButton label="Нэгж талбар" sortKey="parcel_id" sort={sort} onSort={applySort} />
+                </th>
+                {!fixedAcquisitionId && (
+                  <th className="px-5 py-3 font-semibold" aria-sort={ariaSort(sort, "acquisition_name")}>
+                    <SortButton label="Чөлөөлөлт" sortKey="acquisition_name" sort={sort} onSort={applySort} />
+                  </th>
+                )}
                 {SURVEY_COUNT_QUESTIONS.map((q) => (
-                  <th key={q.field} className="px-5 py-3 font-semibold text-center">
-                    {q.title}
+                  <th key={q.field} className="px-5 py-3 font-semibold text-center" aria-sort={ariaSort(sort, q.field)}>
+                    <SortButton label={q.title} sortKey={q.field} sort={sort} onSort={applySort} />
                   </th>
                 ))}
-                <th className="px-5 py-3 font-semibold">Шилжин суурьшсан</th>
-                <th className="px-5 py-3 font-semibold">Шинэчилсэн</th>
+                <th className="px-5 py-3 font-semibold" aria-sort={ariaSort(sort, "relocation_type")}>
+                  <SortButton label="Шилжин суурьшсан" sortKey="relocation_type" sort={sort} onSort={applySort} />
+                </th>
+                <th className="px-5 py-3 font-semibold" aria-sort={ariaSort(sort, "updated_at")}>
+                  <SortButton label="Шинэчилсэн" sortKey="updated_at" sort={sort} onSort={applySort} />
+                </th>
                 <th className="px-5 py-3" />
               </tr>
             </thead>
