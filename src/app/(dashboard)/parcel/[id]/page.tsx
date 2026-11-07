@@ -339,7 +339,12 @@ export default function ParcelDetailPage() {
         <GeneralTab acqId={acqId} parcelId={id} isLocked={isParcelLocked} />
       )}
       {activeTab === "holder" && (
-        <HolderTab acqId={acqId} parcelId={id} isLocked={isParcelLocked} />
+        <HolderTab
+          acqId={acqId}
+          parcelId={id}
+          isLocked={isParcelLocked}
+          isAcqConfirmed={isAcqConfirmed}
+        />
       )}
       {activeTab === "progress" && (
         <ProgressTab

@@ -207,7 +207,17 @@ function HolderBlock({
   );
 }
 
-export function HolderTab({ acqId, parcelId, isLocked = false }: { acqId: string; parcelId: string; isLocked?: boolean }) {
+export function HolderTab({
+  acqId,
+  parcelId,
+  isLocked = false,
+  isAcqConfirmed = false,
+}: {
+  acqId: string;
+  parcelId: string;
+  isLocked?: boolean;
+  isAcqConfirmed?: boolean;
+}) {
   const isExternal = isExternalSpecialRole();
   const isProfOrg = isProfessionalOrg();
   const svc = isProfOrg
@@ -288,6 +298,22 @@ export function HolderTab({ acqId, parcelId, isLocked = false }: { acqId: string
     onError: (err) => toast.error(getApiError(err, "УБЕГ-ийн мэдээлэл татахад алдаа гарлаа")),
   });
 
+  // ГУС-ийн эзэмшигчийг татах — «Мэдээлэл дуудах» эцсийн төлөвт хаалттай тул
+  // эзэмшигчийг татахаас ӨМНӨ эцсийн төлөвт орсон нэгж талбарын эзэмшигч
+  // хоосон үлддэг. Энэ нь ЗАСВАР биш, эх системээс НӨХӨЖ татах тул эзэмшигч
+  // хоосон үед эцсийн төлөвт ч зөвшөөрнө (баталгаажсан чөлөөлөлтөд backend 423).
+  const holderSyncMutation = useMutation({
+    mutationFn: () => {
+      if (!data?.parcel_id) throw new Error("Нэгж талбарын дугаар олдсонгүй");
+      return landApi.syncParcelHolders(acqId, data.parcel_id);
+    },
+    onSuccess: () => {
+      toast.success("Эзэмшигчийн мэдээлэл татагдлаа");
+      void refetchHolders();
+    },
+    onError: (err) => toast.error(getApiError(err, "Эзэмшигчийн мэдээлэл татахад алдаа гарлаа")),
+  });
+
   const payeeMutation = useMutation({
     mutationFn: (holderRowId: string) => svc.setPaymentRecipient(acqId, parcelId, holderRowId),
     onSuccess: () => {
@@ -336,6 +362,8 @@ export function HolderTab({ acqId, parcelId, isLocked = false }: { acqId: string
   const hasDetailHolder = !!(data.detail?.holder_last_name || data.detail?.holder_name);
   // Өмчлөх эрх (right_type=3) — гэрээгүй, улсын бүртгэлээр баталгаажина.
   const isOwnership = data.right_type === 3;
+  const canFetchHolders =
+    !isExternal && !isProfOrg && !isAcqConfirmed && mainHolders.length === 0 && coHolders.length === 0;
 
   return (
     <div className="flex flex-col gap-5">
@@ -390,6 +418,19 @@ export function HolderTab({ acqId, parcelId, isLocked = false }: { acqId: string
             </>
           ) : (
             <p className="text-[13px] text-slate-400 dark:text-slate-500 text-center py-8">Байхгүй</p>
+          )}
+          {canFetchHolders && (
+            <div className="mt-3 flex justify-center border-t border-slate-100 pt-3 dark:border-[#37394d]">
+              <button
+                type="button"
+                onClick={() => holderSyncMutation.mutate()}
+                disabled={holderSyncMutation.isPending}
+                className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#02c0ce]/10 px-3 text-[12px] font-semibold text-[#02c0ce] transition-colors hover:bg-[#02c0ce]/20 disabled:opacity-50"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${holderSyncMutation.isPending ? "animate-spin" : ""}`} />
+                ГУС-аас эзэмшигч татах
+              </button>
+            </div>
           )}
         </div>
 

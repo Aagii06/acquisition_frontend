@@ -34,7 +34,7 @@ export function isSeniorSpecialist(): boolean {
     return (
       Array.isArray(payload.roles) &&
       payload.roles.some((r: string) =>
-        r === "admin" || r === "Админ" || r === "senior_specialist" || r === "Ахлах мэргэжилтэн"
+        r === "admin" || r === "Админ" || r === "senior_specialist" || r === "Ахлах мэргэжилтэн" || r === "department_head"
       )
     );
   } catch (err) {

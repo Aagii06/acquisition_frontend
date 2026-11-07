@@ -95,7 +95,7 @@ export default function AcquisitionDetailPage() {
   }
   // Backend PUT нь admin эсвэл ахлах мэргэжилтний роль + land:update шаарддаг тул ижил нөхцөл
   const canEditBase =
-    hasRole("admin", "senior_specialist", "Ахлах мэргэжилтэн") &&
+    hasRole("admin", "senior_specialist", "Ахлах мэргэжилтэн", "department_head") &&
     hasPermission("land:update");
 
   const {

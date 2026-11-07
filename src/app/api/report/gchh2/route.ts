@@ -21,7 +21,7 @@ const BACKEND = process.env.NEXT_API_URL ?? "http://localhost:8080";
 // бодит ролийг буцаадаг тул хуурамчлах боломжгүй (frontend дээр JWT-г өөрөө
 // задалж шалгавал хуурамч роль нэмж тойрч болно).
 // Өгөгдлийн эрхийг (`land:read`) мөн backend нь хүсэлт тус бүрд шалгана.
-const SENIOR_SPECIALIST_ROLES = ["admin", "Админ", "senior_specialist", "Ахлах мэргэжилтэн"];
+const SENIOR_SPECIALIST_ROLES = ["admin", "Админ", "senior_specialist", "Ахлах мэргэжилтэн", "department_head"];
 
 interface ApiAU {
   au1_name?: string;

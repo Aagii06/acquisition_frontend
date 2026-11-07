@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test --experimental-strip-types --import ./tests/setup.mjs tests/access-policy.test.mjs tests/legacy-import.test.mjs tests/valuation-parser.test.mjs tests/valuation-calc.test.mjs tests/map-layers.test.mjs tests/gchh2-report.test.mjs tests/decision-draft-docx.test.mjs tests/sequential-runner.test.mjs tests/blocking-loader-state.test.mjs tests/estimated-valuation.test.mjs tests/session-token-expiry.test.mjs tests/search-on-enter.test.mjs tests/timeline-months.test.mjs tests/pdf-images.test.mjs tests/payment-performance.test.mjs tests/chronos.test.mjs tests/status-colors.test.mjs tests/status-label.test.mjs tests/trace-print.test.mjs tests/page-tabs.test.mjs",
+    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test --experimental-strip-types --import ./tests/setup.mjs tests/access-policy.test.mjs tests/legacy-import.test.mjs tests/valuation-parser.test.mjs tests/valuation-calc.test.mjs tests/map-layers.test.mjs tests/gchh2-report.test.mjs tests/decision-draft-docx.test.mjs tests/sequential-runner.test.mjs tests/blocking-loader-state.test.mjs tests/estimated-valuation.test.mjs tests/session-token-expiry.test.mjs tests/search-on-enter.test.mjs tests/timeline-months.test.mjs tests/pdf-images.test.mjs tests/payment-performance.test.mjs tests/chronos.test.mjs tests/status-colors.test.mjs tests/status-label.test.mjs tests/trace-print.test.mjs tests/page-tabs.test.mjs tests/label-placement.test.mjs",
     "test:e2e": "node --test tests/e2e/*.e2e.mjs"
   },
   "dependencies": {

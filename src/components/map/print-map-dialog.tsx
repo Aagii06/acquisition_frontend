@@ -16,8 +16,10 @@ import {
   combineCql,
   parcelStatusIdFromLayer,
   AGREED_GROUP,
+  AGREED_CODE_LAYERS,
   AGREED_CODE_LAYER_IDS,
   SEC_GROUP,
+  SEC_CODE_LAYERS,
   SEC_CODE_LAYER_IDS,
   type MapLayerId,
 } from "./layers";
@@ -82,9 +84,11 @@ const BOUNDARY_IDS = PRINT_BOUNDARY_IDS.filter((id) => id !== "au1" && id !== "a
    давхаргуудыг тус тусад нь сонгоно; хэвлэхэд бүлэг тус бүр НЭГ WMS хүсэлт
    (сонгосон кодуудын CQL-ийг OR-оор нэгтгэнэ — өнгийг SLD өөрөө кодоор нь). */
 const GUS_GROUPS = [
-  { ...AGREED_GROUP, ids: AGREED_CODE_LAYER_IDS as readonly string[] },
-  { ...SEC_GROUP, ids: SEC_CODE_LAYER_IDS as readonly string[] },
+  { ...AGREED_GROUP, ids: AGREED_CODE_LAYER_IDS as readonly string[], codes: AGREED_CODE_LAYERS },
+  { ...SEC_GROUP, ids: SEC_CODE_LAYER_IDS as readonly string[], codes: SEC_CODE_LAYERS },
 ];
+/** Хэвлэх хүрээнд байгаа ГУС-ийн кодыг тоолох WFS-ийн дээд хэмжээ (proxy: 5000). */
+const GUS_PRESENCE_MAX = 5000;
 type StaticLayerId = Parameters<typeof layerDef>[0];
 
 /** Нэгж талбарын API-гийн хуудасны дээд хэмжээ (backend: max 200). */
@@ -151,10 +155,14 @@ export default function PrintMapDialog({
      ноорог руу сольсон чиглэлээр PDF үүсгэвэл зураг сунаж гажина. */
   const [applied, setApplied] = useState<PrintSettings | null>(null);
   const viewInfoRef = useRef<PrintMapViewInfo | null>(null);
+  // Сүүлийн зурагт (хэвлэх хүрээнд) объект нь байгаа ГУС-ийн дэд давхаргууд.
+  const presentGusRef = useRef<Set<string> | null>(null);
   const [dataUrl, setDataUrl] = useState<string | null>(null);
   const [pageCanvas, setPageCanvas] = useState<HTMLCanvasElement | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Давхцлаас болж зурагдаагүй өмчлөгчийн нэрийн тоо.
+  const [skippedOwners, setSkippedOwners] = useState(0);
 
   const acqFilter = `acquisition_id='${acquisitionId}'`;
 
@@ -410,7 +418,7 @@ export default function PrintMapDialog({
     const hiddenStatuses = new Set(
       statusLayerDefs.filter((d) => hidden.has(d.id)).map((d) => parcelStatusIdFromLayer(d.id)),
     );
-    const labels: { x: number; y: number; text: string }[] = [];
+    const labels: { x: number; y: number; text: string; weight: number }[] = [];
     features.forEach((f) => {
       const status = Number(f.get("status"));
       if (statusRules(status).is_final || hiddenStatuses.has(status)) return;
@@ -422,9 +430,57 @@ export default function PrintMapDialog({
         geom.getType() === "MultiPolygon"
           ? (geom as MultiPolygon).getInteriorPoints().getCoordinates()[0]
           : (geom as Polygon).getInteriorPoint().getCoordinates();
-      if (pt) labels.push({ x: pt[0], y: pt[1], text });
+      // Том нэгж талбарын нэр түрүүлж байрлана (давхцвал жижгийнх нь хасагдана).
+      if (pt) labels.push({ x: pt[0], y: pt[1], text, weight: geom.getArea() });
     });
     return labels;
+  };
+
+  /* ХЭВЛЭХ ХҮРЭЭНД БАЙГАА ГУС-ийн дэд давхаргууд. Сонгосон бүхнийг таних
+     тэмдэгт оруулбал (9 + 28 дэд төрөл) картад багтахгүй "… бусад N" болж,
+     зураг дээр нэр байхгүй тул юу болох нь мэдэгдэхгүй үлддэг. Иймд зөвхөн
+     хүрээнд объект нь бодитоор байгаа төрлүүдийг үлдээнэ. Тоолж чадаагүй
+     (алдаа, хязгаарт хүрсэн) бүлгийн сонголтыг бүхэлд нь хэвээр үлдээнэ. */
+  const loadPresentGusLayers = async (
+    view: [number, number, number, number],
+    picked: Set<string>,
+  ): Promise<Set<string>> => {
+    const present = new Set<string>();
+    await Promise.all(
+      GUS_GROUPS.map(async (g) => {
+        const pickedIds = g.ids.filter((id) => picked.has(id));
+        if (!pickedIds.length) return;
+        try {
+          const q = new URLSearchParams({
+            service: "WFS", version: "1.1.0", request: "GetFeature",
+            typeName: `land:${geoServerName(pickedIds[0] as MapLayerId)}`,
+            outputFormat: "application/json", propertyName: "code",
+            bbox: `${view.join(",")},EPSG:3857`, maxFeatures: String(GUS_PRESENCE_MAX),
+          });
+          const r = await fetch(GS_WFS, {
+            method: "POST",
+            headers: gsAuthHeaders({ "Content-Type": "application/x-www-form-urlencoded" }),
+            body: q.toString(),
+          });
+          if (!r.ok) throw new Error(String(r.status));
+          const features: { properties?: { code?: unknown } }[] = (await r.json())?.features ?? [];
+          if (features.length >= GUS_PRESENCE_MAX) throw new Error("limit");
+          const found = new Set(features.map((f) => String(f.properties?.code ?? "")));
+          const known = new Set(g.codes.filter((c) => c.code !== null).map((c) => String(c.code)));
+          let hasOther = false;
+          found.forEach((c) => {
+            if (!known.has(c)) hasOther = true;
+          });
+          g.codes.forEach((c) => {
+            if (!picked.has(c.id)) return;
+            if (c.code === null ? hasOther : found.has(String(c.code))) present.add(c.id);
+          });
+        } catch {
+          pickedIds.forEach((id) => present.add(id));
+        }
+      }),
+    );
+    return present;
   };
 
   const rebuild = async (cfg: PrintSettings) => {
@@ -432,6 +488,7 @@ export default function PrintMapDialog({
     if (!ext) return;
     setBusy(true);
     setError(null);
+    setSkippedOwners(0);
     const { orientation, paper } = cfg;
 
     /* Зургийн хэмжээ — хуудасны зургийн талбайн ХАРЬЦААГААР (тайралт үүсэхгүй),
@@ -520,11 +577,22 @@ export default function PrintMapDialog({
       if (cfg.showOwners) {
         const labels = await loadOwnerLabels(cfg.hiddenLayers);
         // Үсгийн хэмжээ хуудасны px-ээр тогтмол → canvas-ын нягтаршлаар өсгөнө.
-        if (labels.length) layers.push({ kind: "label", labels, fontPx: OWNER_LABEL_FONT * (mapW / area.width) });
+        if (labels.length)
+          layers.push({
+            kind: "label",
+            labels,
+            fontPx: OWNER_LABEL_FONT * (mapW / area.width),
+            bottomInsetPx: band,
+            onSkipped: setSkippedOwners,
+          });
       }
-      const canvas = await renderPrintMapCanvas({ extent: view, width: mapW, height: mapH, layers });
+      const [canvas, presentGus] = await Promise.all([
+        renderPrintMapCanvas({ extent: view, width: mapW, height: mapH, layers }),
+        loadPresentGusLayers(view, cfg.gusLayers),
+      ]);
       mapCanvasRef.current = canvas;
       viewInfoRef.current = viewInfo;
+      presentGusRef.current = presentGus;
       compose(canvas, cfg, viewInfo);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -538,7 +606,7 @@ export default function PrintMapDialog({
       title: cfg.title,
       orientation: cfg.orientation,
       paper: cfg.paper,
-      legend: buildLegend(cfg.hiddenLayers, cfg.gusLayers),
+      legend: buildLegend(cfg.hiddenLayers, presentGusRef.current ?? cfg.gusLayers),
       viewInfo,
       info: { ...info, logo: logoRef.current },
     });
@@ -830,6 +898,12 @@ export default function PrintMapDialog({
               <p className="max-w-sm text-[11px]">
                 Цаас, чиглэл, давхаргаа сонгоод <strong>&laquo;Зураг үүсгэх&raquo;</strong> дарна уу.
               </p>
+            </div>
+          )}
+          {!busy && !error && dataUrl && applied?.showOwners && skippedOwners > 0 && (
+            <div className="absolute left-4 right-4 top-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11.5px] text-amber-700 shadow-sm dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
+              Нэгж талбар нягт тул <strong>{skippedOwners}</strong> өмчлөгчийн нэр давхцаж байсныг хэвлэсэнгүй.
+              {applied.paper === "A4" ? " Илүү олон нэр гаргах бол A3 цаас сонгоно уу." : ""}
             </div>
           )}
           {!busy && error && (
