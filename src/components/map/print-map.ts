@@ -3,6 +3,7 @@ import { toLonLat } from "ol/proj";
 import { PDFDocument } from "pdf-lib";
 import { GS_WMS, gsAuthHeaders } from "@/lib/geoserver";
 import type { LayerHatch } from "./layer-config";
+import { placeLabels, type LabelInput } from "./label-placement";
 
 export interface PrintLegendItem {
   color: string;
@@ -492,12 +493,16 @@ export type PrintLayerSpec =
        * Цагаан хүрээтэй тул хиймэл дагуулын бараан зураг дээр ч уншигдана.
        */
       kind: "label";
-      /** Шошгоны төв (EPSG:3857) ба текст */
-      labels: { x: number; y: number; text: string }[];
+      /** Шошгоны төв (EPSG:3857), текст ба эрэмбэ (их нь түрүүлж байрлана) */
+      labels: { x: number; y: number; text: string; weight?: number }[];
       /** Үсгийн хэмжээ — газрын зургийн CANVAS-ын px-ээр (дуудагч масштаблана). */
       fontPx: number;
       color?: string;
       opacity?: number;
+      /** Давхцлаас болж ЗУРАГДААГҮЙ шошгын тоо — дуудагч хэрэглэгчид мэдэгдэнэ. */
+      onSkipped?: (count: number) => void;
+      /** Доод зурвас (таних тэмдэг, мэдээллийн карт) — тэнд нэр тавихгүй, canvas-ын px. */
+      bottomInsetPx?: number;
     };
 
 function drawVectorLayer(
@@ -548,12 +553,34 @@ function drawLabelLayer(
   ctx.lineWidth = Math.max(2, spec.fontPx * 0.28);
   ctx.strokeStyle = "rgba(255,255,255,0.92)";
   ctx.fillStyle = spec.color ?? "#0f172a";
-  spec.labels.forEach(({ x, y, text }) => {
-    const px = (x - extent[0]) / resolution;
-    const py = (extent[3] - y) / resolution;
-    ctx.strokeText(text, px, py);
-    ctx.fillText(text, px, py);
+  // Давхцахгүйгээр байрлуулна (label-placement.ts) — нягт газарт нэр бүрийг
+  // шууд зурвал бие биенээ дарж уншигдахгүй болдог.
+  const inputs: LabelInput[] = spec.labels.map(({ x, y, text, weight }) => ({
+    x: (x - extent[0]) / resolution,
+    y: (extent[3] - y) / resolution,
+    text,
+    weight,
+  }));
+  const { placed, skipped } = placeLabels(inputs, {
+    fontPx: spec.fontPx,
+    measure: (text, f) => {
+      ctx.font = `bold ${f}px sans-serif`;
+      return ctx.measureText(text).width;
+    },
+    width: ctx.canvas.width,
+    height: ctx.canvas.height - (spec.bottomInsetPx ?? 0),
   });
+  placed.forEach(({ x, y, lines, fontPx }) => {
+    ctx.font = `bold ${fontPx}px sans-serif`;
+    ctx.lineWidth = Math.max(2, fontPx * 0.28);
+    const lineH = fontPx * 1.15;
+    lines.forEach((line, i) => {
+      const ly = y + (i - (lines.length - 1) / 2) * lineH;
+      ctx.strokeText(line, x, ly);
+      ctx.fillText(line, x, ly);
+    });
+  });
+  spec.onSkipped?.(skipped);
   ctx.restore();
 }
 
@@ -989,10 +1016,10 @@ export function composePrintPage(
     /* ӨНДӨР нь мэдээллийн карттай ЯГ ИЖИЛ (INFO_CARD_H) — хоёр карт нэг
        шугамд эгнэнэ. Элемент олон бол мөрийг ЖИЖИГРҮҮЛЭХГҮЙ, оронд нь
        ХОЁР БАГАНА болгоно (жижиг үсэг цаасан дээр уншигдахгүй). */
-    const legendH = INFO_CARD_H;
+    let legendH = INFO_CARD_H;
     const headerH = 16;
     const rowH = 10;
-    const maxRows = Math.max(1, Math.floor((legendH - headerH - 4) / rowH));
+    let maxRows = Math.max(1, Math.floor((legendH - headerH - 4) / rowH));
 
     ctx.font = "bold 8px sans-serif";
     const titleTextWidth = ctx.measureText("Таних тэмдэг").width;
@@ -1001,9 +1028,16 @@ export function composePrintPage(
     const colW = Math.min(150, Math.max(92, maxRowTextWidth + 21));
     /* Баганын тоо — мэдээллийн картад ~300px үлдээх хэмжээгээр (ГУС-ийн дэд
        давхаргууд олноор сонгогдоход 3 багана хүрэлцдэггүй). Тэр ч багтахгүй
-       бол сүүлийн мөрийг "+N бусад" болгоно — картаас доош хальж гарахгүй. */
+       бол картыг ДЭЭШ өндөрсгөнө ("… бусад N" гэвэл зураг дээр нэр байхгүй
+       тул юу болох нь мэдэгдэхгүй) — газрын зургийн талбайн хагасаас
+       хэтэрвэл л сүүлийн мөрийг "… бусад N" болгоно. */
     const maxCols = Math.max(3, Math.floor((mapAreaW - CARD_INSET * 3 - 300 - 6) / colW));
     const cols = Math.max(1, Math.min(maxCols, Math.ceil(legend.length / maxRows)));
+    if (legend.length > cols * maxRows) {
+      const rowsLimit = Math.max(maxRows, Math.floor((mapAreaH / 2 - headerH - 4) / rowH));
+      maxRows = Math.min(rowsLimit, Math.ceil(legend.length / cols));
+      legendH = Math.max(INFO_CARD_H, headerH + 4 + maxRows * rowH);
+    }
     const capacity = cols * maxRows;
     if (legend.length > capacity) {
       const rest = legend.length - capacity + 1;

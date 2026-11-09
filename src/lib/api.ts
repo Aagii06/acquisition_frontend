@@ -509,6 +509,11 @@ function normalizeUser(raw: any): User {
     id: String(raw.id ?? raw.user_id ?? ''),
     employee_id: raw.employee_id == null ? undefined : String(raw.employee_id),
     employee,
+    // Ролийн ID-г мөр болгоно — rolesApi (normalizeRole) мөр ID буцаадаг тул
+    // жигдрүүлэхгүй бол засах форм дээрх роль сонгогч чеклэгдэхгүй.
+    roles: Array.isArray(raw.roles)
+      ? raw.roles.map((r: any) => ({ ...r, id: String(r.id ?? r.ID ?? '') }))
+      : raw.roles,
   }
 }
 

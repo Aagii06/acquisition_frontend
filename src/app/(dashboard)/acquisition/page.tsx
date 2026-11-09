@@ -495,7 +495,7 @@ export default function LandPage() {
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm>(null);
   const queryClient = useQueryClient();
 
-  const canCreate = hasPermission("land:create") && hasRole("admin", "senior_specialist", "Ахлах мэргэжилтэн");
+  const canCreate = hasPermission("land:create") && hasRole("admin", "senior_specialist", "Ахлах мэргэжилтэн", "department_head");
   const isExternal = isExternalSpecialRole();
   const currentUserId = getCurrentUserId();
   const isProfOrg = isProfessionalOrg();
