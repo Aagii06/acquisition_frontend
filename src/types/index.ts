@@ -2158,6 +2158,8 @@ export interface LandReleaseFilter {
   status?: number;
   year?: number;
   structure_type_id?: number;
+  /** Сум/дүүрэг (au2_code). */
+  au2_code?: string;
   page?: number;
   page_size?: number;
 }

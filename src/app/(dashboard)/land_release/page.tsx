@@ -94,7 +94,7 @@ export default function LandReleasePage() {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
 
-  const [draft, setDraft] = useState({ search: "", status: 0, year: 0, structure_type_id: 0 });
+  const [draft, setDraft] = useState({ search: "", status: 0, year: 0, structure_type_id: 0, au2_code: "" });
   const [filter, setFilter] = useState<LandReleaseFilter>({});
   const [page, setPage] = useState(1);
   const [showCreate, setShowCreate] = useState(false);
@@ -105,15 +105,16 @@ export default function LandReleasePage() {
       status: draft.status || undefined,
       year: draft.year || undefined,
       structure_type_id: draft.structure_type_id || undefined,
+      au2_code: draft.au2_code || undefined,
     });
     setPage(1);
   };
   const clearAll = () => {
-    setDraft({ search: "", status: 0, year: 0, structure_type_id: 0 });
+    setDraft({ search: "", status: 0, year: 0, structure_type_id: 0, au2_code: "" });
     setFilter({});
     setPage(1);
   };
-  const hasFilter = Boolean(filter.search || filter.status || filter.year || filter.structure_type_id);
+  const hasFilter = Boolean(filter.search || filter.status || filter.year || filter.structure_type_id || filter.au2_code);
 
   const { data, isLoading } = useQuery({
     queryKey: ["land-releases", filter, page],
@@ -197,7 +198,7 @@ export default function LandReleasePage() {
       {/* Шүүлт — газрын зураг, статистик, жагсаалт гурвуулаа энэ шүүлтээр */}
       <div className="ap-card w-full min-w-0 p-4">
         <div
-          className="grid w-full min-w-0 grid-cols-1 items-center gap-2 sm:grid-cols-2 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,0.7fr)_auto_auto_auto]"
+          className="grid w-full min-w-0 grid-cols-1 items-center gap-2 sm:grid-cols-2 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,0.7fr)_auto_auto_auto]"
           {...searchOnEnter(applySearch)}
         >
           <div className="relative min-w-0">
@@ -221,6 +222,22 @@ export default function LandReleasePage() {
                 {LAND_RELEASE_STATUS_LABELS[s]}
               </option>
             ))}
+          </select>
+          {/* Сум/дүүрэг — шүүлтгүй жагсаалтаас (stats.districts), сонгоход зураг/статистик/жагсаалт тэр дүүргээр */}
+          <select
+            value={draft.au2_code}
+            onChange={(e) => setDraft((d) => ({ ...d, au2_code: e.target.value }))}
+            className={inp}
+          >
+            <option value="">Бүх дүүрэг/сум</option>
+            {(stats?.districts ?? [])
+              .filter((d) => d.code)
+              .map((d) => (
+                <option key={d.code} value={d.code}>
+                  {d.name}
+                  {d.au1_name ? ` (${d.au1_name})` : ""}
+                </option>
+              ))}
           </select>
           <select
             value={draft.structure_type_id}
@@ -344,7 +361,6 @@ export default function LandReleasePage() {
 
             {/* Хүснэгт — бүх сум/дүүрэг (графикийн «Бусад»-ыг задлан) */}
             <div className="min-w-0">
-              <p className="mb-2 text-[13px] font-semibold text-slate-700 dark:text-white">Дүүрэг/сумын хүснэгт</p>
               {districts.length === 0 ? (
                 <p className="py-10 text-center text-[12px] text-slate-400">Мэдээлэл алга</p>
               ) : (
@@ -388,12 +404,6 @@ export default function LandReleasePage() {
 
             {/* Сум/дүүрэг × он — дүүрэг бүр нэг шугам (өнгө нь дүүрэгт тогтмол) */}
             <div className="min-w-0">
-              <p className="text-[13px] font-semibold text-slate-700 dark:text-white">
-                Дүүрэг/сумаар оноор{hasFilter ? " (шүүлтээр)" : ""}
-              </p>
-              <p className="mb-2 text-[11px] text-slate-400 dark:text-slate-500">
-                Газрын тоо. Захирамжтай бол захирамжийн оноор, эс бөгөөс оруулсан оноор.
-              </p>
               {districtYearChart.length === 0 ? (
                 <p className="py-10 text-center text-[12px] text-slate-400">Мэдээлэл алга</p>
               ) : (

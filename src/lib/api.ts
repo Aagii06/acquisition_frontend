@@ -1893,6 +1893,7 @@ function landReleaseParams(f?: LandReleaseFilter) {
   if (f?.status) sp.set('status', String(f.status))
   if (f?.year) sp.set('year', String(f.year))
   if (f?.structure_type_id) sp.set('structure_type_id', String(f.structure_type_id))
+  if (f?.au2_code) sp.set('au2_code', f.au2_code)
   if (f?.page) sp.set('page', String(f.page))
   if (f?.page_size) sp.set('page_size', String(f.page_size))
   const q = sp.toString()
