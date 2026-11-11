@@ -64,7 +64,16 @@ export function YearMultiSelect({
     <div ref={ref} className={cn("relative", className)}>
       <button
         type="button"
+        data-search-on-enter
         onClick={() => setOpen((o) => !o)}
+        // Он сонгоод Enter дарахад цэсийг хааж, хайлтыг шүүлтийн мөрөнд
+        // (searchOnEnter) үлдээнэ.
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && open) {
+            e.preventDefault(); // товчны click (дахин нээх) явагдахгүй
+            setOpen(false);
+          }
+        }}
         className={cn(
           "flex h-9 w-full items-center gap-1.5 rounded-lg border px-3 text-[13px] transition-all",
           open ? "border-[#02c0ce] ring-2 ring-[#02c0ce]/15" : "border-slate-200 dark:border-white/[0.08]",
