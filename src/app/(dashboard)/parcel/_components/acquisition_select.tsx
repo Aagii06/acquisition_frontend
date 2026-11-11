@@ -18,10 +18,6 @@ export function AcquisitionSelect({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const wrapRef = useRef<HTMLDivElement>(null);
-  // Сонголт хийсний дараа input алга болж focus алдагддаг — тэгвэл Enter
-  // шүүлтийн мөрөнд хүрэхгүй. Сонгосон утгын шошго руу focus шилжүүлнэ.
-  const labelRef = useRef<HTMLSpanElement>(null);
-  const refocusLabel = useRef(false);
 
   const { acquisitions } = useAcquisitionOptions();
 
@@ -50,7 +46,6 @@ export function AcquisitionSelect({
   function select(acq: { id: string; acquisition_name: string }) {
     setQuery("");
     onSelect(acq.id, acq.acquisition_name);
-    refocusLabel.current = true;
     setOpen(false);
   }
 
@@ -63,13 +58,6 @@ export function AcquisitionSelect({
 
   const hasValue = !!selectedId;
 
-  useEffect(() => {
-    if (!open && refocusLabel.current) {
-      refocusLabel.current = false;
-      labelRef.current?.focus();
-    }
-  }, [open]);
-
   return (
     <div ref={wrapRef} className={`relative ${className ?? ""}`}>
       <div
@@ -78,10 +66,8 @@ export function AcquisitionSelect({
       >
         {hasValue && !open ? (
           <span
-            ref={labelRef}
-            tabIndex={0}
             title={displayLabel}
-            className="flex-1 min-w-0 text-[13px] text-slate-800 dark:text-slate-200 truncate outline-none"
+            className="flex-1 min-w-0 text-[13px] text-slate-800 dark:text-slate-200 truncate"
           >
             {displayLabel}
           </span>

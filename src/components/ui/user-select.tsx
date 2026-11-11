@@ -43,10 +43,6 @@ export function UserSelect({
   const [debounced, setDebounced] = useState("");
   const [displayLabel, setDisplayLabel] = useState(selectedLabel ?? "");
   const wrapRef = useRef<HTMLDivElement>(null);
-  // Сонголт хийсний дараа input алга болж focus алдагддаг — тэгвэл Enter
-  // шүүлтийн мөрөнд хүрэхгүй. Сонгосон утгын шошго руу focus шилжүүлнэ.
-  const labelRef = useRef<HTMLSpanElement>(null);
-  const refocusLabel = useRef(false);
 
   useEffect(() => {
     if (selectedLabel !== undefined) setDisplayLabel(selectedLabel);
@@ -75,16 +71,8 @@ export function UserSelect({
     setQuery("");
     setDisplayLabel(label);
     onSelect(user.id, label);
-    refocusLabel.current = true;
     setOpen(false);
   };
-
-  useEffect(() => {
-    if (!open && refocusLabel.current) {
-      refocusLabel.current = false;
-      labelRef.current?.focus();
-    }
-  }, [open]);
 
   return (
     <div ref={wrapRef} className={`relative ${className ?? ""}`}>
@@ -93,7 +81,7 @@ export function UserSelect({
         className={`flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 transition-all focus-within:border-[#02c0ce] focus-within:ring-2 focus-within:ring-[#02c0ce]/15 dark:border-white/[0.08] dark:bg-[#1e1f27] ${disabled ? "cursor-not-allowed opacity-60" : "cursor-text"}`}
       >
         {selectedId && !open ? (
-          <span ref={labelRef} tabIndex={0} title={displayLabel} className="min-w-0 flex-1 truncate text-[13px] text-slate-800 outline-none dark:text-slate-200">
+          <span title={displayLabel} className="min-w-0 flex-1 truncate text-[13px] text-slate-800 dark:text-slate-200">
             {displayLabel}
           </span>
         ) : (

@@ -35,9 +35,7 @@ export function searchOnEnter(onSearch: () => void) {
 
       // Товч/холбоос дээр Enter нь тэр элементийн өөрийнх нь үйлдэл
       // (жишээ нь "Цэвэрлэх") — түүнийг дарж бичихгүй.
-      // Харин `data-search-on-enter` тэмдэгтэй товч (жишээ нь он сонгогчийн
-      // гол товч) дээр Enter нь хайлт хийнэ — сонгоод шууд Enter дарна.
-      if ((el.tagName === "BUTTON" || el.tagName === "A") && !el.hasAttribute("data-search-on-enter")) return;
+      if (el.tagName === "BUTTON" || el.tagName === "A") return;
 
       // Нээлттэй сонголтын жагсаалт (combobox) дотор Enter нь сонголт
       // баталгаажуулна; хайлт нь дараагийн Enter дээр явна.
