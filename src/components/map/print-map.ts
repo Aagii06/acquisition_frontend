@@ -144,8 +144,9 @@ export function printMapAreaSizePx(
  * Дуудагч тал нь чөлөөлөлтийн хилийг зөвхөн ДЭЭД хэсэгт багтаах ёстой —
  * доод зурвас нь хилгүй хоосон газрын зураг байж, түүн дээр карт хөвнө.
  */
-export function printInfoBandPx(): number {
-  return INFO_CARD_H + CARD_INSET * 2;
+export function printInfoBandPx(orientation: PrintOrientation = "landscape"): number {
+  // Босоо: таних тэмдэг + мэдээллийн карт ДЭЭШ-ДООШ хоёр мөр.
+  return orientation === "portrait" ? INFO_CARD_H * 2 + CARD_INSET * 3 : INFO_CARD_H + CARD_INSET * 2;
 }
 
 /**
@@ -1007,10 +1008,14 @@ export function composePrintPage(
   ctx.lineWidth = 1;
   ctx.strokeRect(mapAreaX + 0.5, mapAreaY + 0.5, mapAreaW, mapAreaH);
 
-  // Таних тэмдэг ба мэдээллийн карт хоёр НЭГ доод зурваст зэрэгцэнэ.
-  /* Таних тэмдэг ба мэдээллийн карт ҮРГЭЛЖ доод зурваст ЗЭРЭГЦЭНЭ (босоо ч
-     мөн). Үсэг жижиг болсон тул нарийн хуудсанд ч багтана. */
+  /* ХЭВТЭЭ: таних тэмдэг ба мэдээллийн карт НЭГ доод зурваст зэрэгцэнэ.
+     БОСОО: хуудас нарийн тул ХОЁР МӨР — доор нь мэдээллийн карт, түүний
+     дээр таних тэмдэг, хоёулаа БҮТЭН өргөнтэй. */
+  const stacked = orientation === "portrait";
   const cardBottom = mapAreaY + mapAreaH - CARD_INSET;
+  const infoY = cardBottom - INFO_CARD_H;
+  const legendBottom = stacked ? infoY - CARD_INSET : cardBottom;
+  const fullCardW = mapAreaW - CARD_INSET * 2;
   let legendRight = mapAreaX + CARD_INSET;
   if (legend.length) {
     /* ӨНДӨР нь мэдээллийн карттай ЯГ ИЖИЛ (INFO_CARD_H) — хоёр карт нэг
@@ -1031,7 +1036,9 @@ export function composePrintPage(
        бол картыг ДЭЭШ өндөрсгөнө ("… бусад N" гэвэл зураг дээр нэр байхгүй
        тул юу болох нь мэдэгдэхгүй) — газрын зургийн талбайн хагасаас
        хэтэрвэл л сүүлийн мөрийг "… бусад N" болгоно. */
-    const maxCols = Math.max(3, Math.floor((mapAreaW - CARD_INSET * 3 - 300 - 6) / colW));
+    const maxCols = stacked
+      ? Math.max(1, Math.floor((fullCardW - 6) / colW))
+      : Math.max(3, Math.floor((mapAreaW - CARD_INSET * 3 - 300 - 6) / colW));
     const cols = Math.max(1, Math.min(maxCols, Math.ceil(legend.length / maxRows)));
     if (legend.length > cols * maxRows) {
       const rowsLimit = Math.max(maxRows, Math.floor((mapAreaH / 2 - headerH - 4) / rowH));
@@ -1044,10 +1051,11 @@ export function composePrintPage(
       legend = [...legend.slice(0, capacity - 1), { color: "", label: `… бусад ${rest}`, total: true }];
     }
     const perCol = Math.ceil(legend.length / cols);
-    const legendW = Math.max(titleTextWidth + 16, colW * cols + 6);
+    const legendW = stacked ? fullCardW : Math.max(titleTextWidth + 16, colW * cols + 6);
     const legendX = mapAreaX + CARD_INSET;
-    const legendY = cardBottom - legendH;
-    legendRight = legendX + legendW + CARD_INSET;
+    const legendY = legendBottom - legendH;
+    // Босоо үед мэдээллийн карт таних тэмдгийн ДООР, зүүн захаас эхэлнэ.
+    if (!stacked) legendRight = legendX + legendW + CARD_INSET;
 
     ctx.fillStyle = "rgba(255,255,255,0.94)";
     drawRoundedRect(ctx, legendX, legendY, legendW, legendH, 6);
@@ -1108,7 +1116,6 @@ export function composePrintPage(
      доод зурваст оруулахгүй байрлуулдаг тул энэ карт хилийг халхлахгүй. */
   const infoX = legendRight;
   const infoW = mapAreaX + mapAreaW - CARD_INSET - infoX;
-  const infoY = cardBottom - INFO_CARD_H;
 
   if (infoW > 200) {
     ctx.fillStyle = "rgba(255,255,255,0.94)";

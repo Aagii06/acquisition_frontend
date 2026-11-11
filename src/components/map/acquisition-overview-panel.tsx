@@ -365,47 +365,6 @@ export function AcquisitionOverviewPanel({
                 <Kpi label="Захирамж" value={`${(dec?.confirmed ?? 0).toLocaleString()}`} hint={dec ? `/ ${dec.total} төсөл` : undefined} />
               </div>
 
-              {/* Ерөнхий мэдээлэл */}
-              {(single || locations.length > 0) && (
-                <Section title="Ерөнхий">
-                  <dl className="space-y-1 text-[12px]">
-                    {single?.general_category_name && (
-                      <InfoRow label="Ангилал" value={[single.general_category_name, single.sub_category_name].filter(Boolean).join(" › ")} />
-                    )}
-                    {(single?.start_date || single?.end_date) && (
-                      <InfoRow label="Хугацаа" value={`${fmtDate(single?.start_date) || "—"} – ${fmtDate(single?.end_date) || "—"}`} />
-                    )}
-                    {locations.length > 0 && (
-                      <div className="flex items-start gap-2">
-                        <dt className="w-[110px] shrink-0 text-slate-400">Байршил</dt>
-                        <dd className="min-w-0 flex-1 space-y-0.5 font-medium text-slate-700 dark:text-slate-200">
-                          {locations.map((l) => (
-                            <p key={l.district} className="break-words">
-                              {l.district}
-                              {l.khoroos.length > 0 && <span className="font-normal text-slate-500 dark:text-slate-400">, {l.khoroos.join(", ")}</span>}
-                            </p>
-                          ))}
-                        </dd>
-                      </div>
-                    )}
-                    {single && acqs.length === 1 && single.area_m2 > 0 && <InfoRow label="Талбай" value={`${ha(single.area_m2)} га`} />}
-                    {!!single?.assigned_users?.length && (
-                      <InfoRow label="Хариуцагч" value={single.assigned_users.map((u) => u.user_name).filter(Boolean).join(", ")} />
-                    )}
-                    {single?.professional_org_name && <InfoRow label="Мэргэжлийн байгууллага" value={single.professional_org_name} />}
-                    {single?.implementing_org && <InfoRow label="Хэрэгжүүлэгч" value={single.implementing_org} />}
-                    {single?.decree_number && (
-                      <InfoRow label="Шийдвэр" value={[single.decree_number, fmtDate(single.decree_date)].filter(Boolean).join(" · ")} />
-                    )}
-                  </dl>
-                  {(single?.overlapping_parcel_count ?? 0) > 0 && (
-                    <p className="mt-2 rounded-md bg-amber-50 px-2 py-1 text-[11px] text-amber-700 dark:bg-amber-400/10 dark:text-amber-300">
-                      Байршлаар давхцсан {single?.overlapping_parcel_count} нэгж талбар байна
-                    </p>
-                  )}
-                </Section>
-              )}
-
               {/* Олон чөлөөлөлт — гүйцэтгэлээр */}
               {acqProgress.length > 0 && (
                 <Section
@@ -604,6 +563,47 @@ export function AcquisitionOverviewPanel({
                   </div>
                 )}
               </Section>
+
+              {/* Ерөнхий мэдээлэл */}
+              {(single || locations.length > 0) && (
+                <Section title="Ерөнхий">
+                  <dl className="space-y-1 text-[12px]">
+                    {single?.general_category_name && (
+                      <InfoRow label="Ангилал" value={[single.general_category_name, single.sub_category_name].filter(Boolean).join(" › ")} />
+                    )}
+                    {(single?.start_date || single?.end_date) && (
+                      <InfoRow label="Хугацаа" value={`${fmtDate(single?.start_date) || "—"} – ${fmtDate(single?.end_date) || "—"}`} />
+                    )}
+                    {single && acqs.length === 1 && single.area_m2 > 0 && <InfoRow label="Талбай" value={`${ha(single.area_m2)} га`} />}
+                    {!!single?.assigned_users?.length && (
+                      <InfoRow label="Хариуцагч" value={single.assigned_users.map((u) => u.user_name).filter(Boolean).join(", ")} />
+                    )}
+                    {single?.professional_org_name && <InfoRow label="Мэргэжлийн байгууллага" value={single.professional_org_name} />}
+                    {single?.implementing_org && <InfoRow label="Хэрэгжүүлэгч" value={single.implementing_org} />}
+                    {single?.decree_number && (
+                      <InfoRow label="Шийдвэр" value={[single.decree_number, fmtDate(single.decree_date)].filter(Boolean).join(" · ")} />
+                    )}
+                    {locations.length > 0 && (
+                      <div className="flex items-start gap-2">
+                        <dt className="w-[110px] shrink-0 text-slate-400">Байршил</dt>
+                        <dd className="min-w-0 flex-1 space-y-0.5 font-medium text-slate-700 dark:text-slate-200">
+                          {locations.map((l) => (
+                            <p key={l.district} className="break-words">
+                              {l.district}
+                              {l.khoroos.length > 0 && <span className="font-normal text-slate-500 dark:text-slate-400">, {l.khoroos.join(", ")}</span>}
+                            </p>
+                          ))}
+                        </dd>
+                      </div>
+                    )}
+                  </dl>
+                  {(single?.overlapping_parcel_count ?? 0) > 0 && (
+                    <p className="mt-2 rounded-md bg-amber-50 px-2 py-1 text-[11px] text-amber-700 dark:bg-amber-400/10 dark:text-amber-300">
+                      Байршлаар давхцсан {single?.overlapping_parcel_count} нэгж талбар байна
+                    </p>
+                  )}
+                </Section>
+              )}
             </>
           )}
       </div>

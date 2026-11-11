@@ -52,6 +52,7 @@ import {
   Wallet,
   FileUp,
   ClipboardList,
+  Printer,
 } from "lucide-react";
 import { notifyNavStart } from "@/lib/blocking-loader-state";
 import { loadPageTabs } from "@/lib/page-tabs";
@@ -61,6 +62,8 @@ const NAV_MAIN = [
   { href: "/acquisition", label: "Газар чөлөөлөлт", icon: FileText },
   { href: "/report", label: "Тайлан", icon: BarChart3 },
   { href: "/map", label: "Газрын зураг", icon: Map },
+  // 1–3 чөлөөлөлтийг нэг ажлын зурагт хэвлэх.
+  { href: "/print", label: "Хэвлэх", icon: Printer },
   { href: "/parcel", label: "Нэгж талбар", icon: Grid2x2 },
   // Чөлөөлөгдсөн газрын судалгааны дүн — land:read эрхтэй ажилтанд.
   { href: "/parcel_survey", label: "Газрын судалгаа", icon: ClipboardList },
@@ -374,13 +377,16 @@ export function Sidebar() {
     const showSurvey = hasPermission("land:read");
     // Буулгалт — backend нь land:read шаардаж, мэргэжлийн байгууллагыг хаадаг.
     const showRelease = hasPermission("land:read") && !isExternalSpecialRole();
+    // Хэвлэх — чөлөөлөлт/нэгж талбарын мэдээлэл уншдаг тул land:read, дотоод ажилтанд.
+    const showPrint = hasPermission("land:read") && !isExternalSpecialRole();
     setMainNav(
       NAV_MAIN.filter(
         (item) =>
           (item.href !== "/report" || showReport) &&
           (item.href !== "/legacy_import" || showImport) &&
           (item.href !== "/parcel_survey" || showSurvey) &&
-          (item.href !== "/land_release" || showRelease),
+          (item.href !== "/land_release" || showRelease) &&
+          (item.href !== "/print" || showPrint),
       ),
     );
     setReady(true);

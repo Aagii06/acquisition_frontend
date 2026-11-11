@@ -1,6 +1,7 @@
 "use client";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { toLonLat, transformExtent } from "ol/proj";
 import GeoJSON from "ol/format/GeoJSON";
 import type Polygon from "ol/geom/Polygon";
@@ -8,7 +9,7 @@ import type MultiPolygon from "ol/geom/MultiPolygon";
 import { ChevronDown, Download, ImageIcon, Loader2, RefreshCw, X } from "lucide-react";
 import { landApi, departmentApi } from "@/lib/api";
 import { STATUS_LABELS } from "@/types";
-import type { DroneImage } from "@/types";
+import type { DroneImage, LandAcquisition } from "@/types";
 import { GS_WFS, gsAuthHeaders, droneTileUrl, GS_GWC_MAX_ZOOM } from "@/lib/geoserver";
 import {
   layerDef,
@@ -116,15 +117,37 @@ function droneBounds(img: DroneImage): [number, number, number, number] | null {
   return e;
 }
 
+/** Нэг хэвлэлтэд багтаах чөлөөлөлтийн дээд тоо («Хэвлэх» хуудас). */
+export const PRINT_MAX_ACQUISITIONS = 3;
+
+/** GeoServer-ийн CQL-д өгөх тэмдэгт мөр — дан хашилтыг давхарлана. */
+const cqlStr = (v: string) => `'${v.replace(/'/g, "''")}'`;
+
 export default function PrintMapDialog({
   acquisitionId,
+  acquisitionIds,
   acquisitionName,
   onClose,
+  embedded = false,
+  selector,
 }: {
-  acquisitionId: string;
+  /** Нэг чөлөөлөлт хэвлэх (дашбоард / Байршил таб). */
+  acquisitionId?: string;
+  /** Олон чөлөөлөлтийг НЭГ хуудсанд хэвлэх (1–3) — `acquisitionId`-ийг давна. */
+  acquisitionIds?: string[];
   acquisitionName?: string;
-  onClose: () => void;
+  onClose?: () => void;
+  /** true — modal биш, хуудсанд суулгаж харуулна («Хэвлэх» хуудас). */
+  embedded?: boolean;
+  /** Тохиргооны хэсгийн ДЭЭД талд харуулах нэмэлт (чөлөөлөлт сонгогч г.м.). */
+  selector?: ReactNode;
 }) {
+  const ids = useMemo(
+    () => (acquisitionIds ?? (acquisitionId ? [acquisitionId] : [])).slice(0, PRINT_MAX_ACQUISITIONS),
+    [acquisitionIds, acquisitionId],
+  );
+  const idsKey = ids.join(",");
+  const hasAcq = ids.length > 0;
   const mapCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const logoRef = useRef<HTMLImageElement | null>(null);
   // Нэгж талбарын ТӨЛӨВҮҮД — бүртгэлээс. Тайлбар, явцын задаргаа болон
@@ -135,7 +158,13 @@ export default function PrintMapDialog({
 
   const [paper, setPaper] = useState<PrintPaperSize>("A4");
   const [orientation, setOrientation] = useState<PrintOrientation>("landscape");
-  const [title, setTitle] = useState(acquisitionName?.trim() || "Чөлөөлөлтийн байршил");
+  // «Хэвлэх» хуудас (acquisitionIds) — гарчиг ЭХЭНДЭЭ ХООСОН, сонгосон
+  // чөлөөлөлтүүдийн нэр дарааллаараа нэмэгдэж явна.
+  const [title, setTitle] = useState(
+    acquisitionIds ? "" : acquisitionName?.trim() || "Чөлөөлөлтийн байршил",
+  );
+  // Хэрэглэгч гарчгийг ГАРААР засвал автомат бөглөлт зогсоно.
+  const [titleTouched, setTitleTouched] = useState(false);
   /* ── ТОХИРГОО: ноорог vs хэрэгжсэн ──────────────────────────────────
      Гарчиг, цаас, чиглэл, давхарга, дроны сонголт БҮГД зөвхөн НООРОГ —
      өөрчлөхөд зураг шинэчлэгдэхгүй. "Зураг үүсгэх"/"Шинээр үүсгэх" дарахад
@@ -160,17 +189,25 @@ export default function PrintMapDialog({
   const [dataUrl, setDataUrl] = useState<string | null>(null);
   const [pageCanvas, setPageCanvas] = useState<HTMLCanvasElement | null>(null);
   const [busy, setBusy] = useState(false);
+  /* «Хэвлэх» хуудас (embedded) — хуудсан дээрх урьдчилан харах талбай намхан
+     тул үүсгэсэн зургийг ТУСДАА цонхонд, хуудасны чиглэлийн харьцаагаар үзүүлнэ. */
+  const [previewOpen, setPreviewOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Давхцлаас болж зурагдаагүй өмчлөгчийн нэрийн тоо.
   const [skippedOwners, setSkippedOwners] = useState(0);
 
-  const acqFilter = `acquisition_id='${acquisitionId}'`;
+  /* Олон чөлөөлөлт — `IN (...)` биш `OR`: CQL/ECQL-ийн аль ч парсер дээр
+     ажилладаг. combineCql нь хэсэг бүрийг хаалтанд хийдэг тул бусад нөхцөлтэй
+     AND-аар нийлэхэд дараалал алдагдахгүй. */
+  const acqFilter = ids.map((id) => `acquisition_id=${cqlStr(id)}`).join(" OR ");
 
   /* ── Өгөгдөл ─────────────────────────────────────────────────── */
-  const { data: acq, isFetched: acqFetched } = useQuery({
-    queryKey: ["land", acquisitionId],
-    queryFn: () => landApi.getById(acquisitionId),
+  const acqQueries = useQueries({
+    queries: ids.map((id) => ({ queryKey: ["land", id], queryFn: () => landApi.getById(id) })),
   });
+  const acqs = acqQueries.map((q) => q.data).filter((a): a is LandAcquisition => !!a);
+  const acqFetched = acqQueries.every((q) => q.isFetched);
+  const acqsKey = acqQueries.map((q) => q.dataUpdatedAt).join(",");
   const { data: categories = [], isFetched: categoriesFetched } = useQuery({
     queryKey: ["acquisition-categories"],
     queryFn: () => landApi.listCategories(),
@@ -181,15 +218,22 @@ export default function PrintMapDialog({
     queryFn: () => departmentApi.list({ page_size: 200 }).then((r) => r.data ?? []),
     staleTime: 5 * 60_000,
   });
-  const { data: droneImages = [] } = useQuery({
-    queryKey: ["drone-images", acquisitionId],
-    queryFn: () => landApi.listDroneImages(acquisitionId),
+  const droneQueries = useQueries({
+    queries: ids.map((id) => ({ queryKey: ["drone-images", id], queryFn: () => landApi.listDroneImages(id) })),
   });
+  const dronesKey = droneQueries.map((q) => q.dataUpdatedAt).join(",");
 
-  // Хүрээ мэдэгдэж буй, GeoServer-т нийтлэгдсэн зургууд л сонгогдоно
+  // Хүрээ мэдэгдэж буй, GeoServer-т нийтлэгдсэн зургууд л сонгогдоно. Тайлын
+  // URL нь чөлөөлөлтөөр ялгардаг тул аль чөлөөлөлтийнх болохыг хадгална.
   const usableDrones = useMemo(
-    () => droneImages.filter((img) => !!img.layer_name && !!droneBounds(img)),
-    [droneImages],
+    () =>
+      droneQueries.flatMap((q, i) =>
+        (q.data ?? [])
+          .filter((img) => !!img.layer_name && !!droneBounds(img))
+          .map((img) => ({ ...img, acqId: ids[i] })),
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [dronesKey, idsKey],
   );
 
   const [statusCounts, setStatusCounts] = useState<Record<number, number>>({});
@@ -202,12 +246,39 @@ export default function PrintMapDialog({
     });
   }, []);
 
+  /* Сонголт солигдвол өмнөх зураг/тоолол ХУУЧИРНА — бүгдийг шинээр эхлүүлнэ. */
+  useEffect(() => {
+    setExtent(null);
+    setStatusCounts({});
+    setParcelsAreaM2(0);
+    setCountsLoaded(false);
+    setApplied(null);
+    setDataUrl(null);
+    setPageCanvas(null);
+    setError(null);
+    setSkippedOwners(0);
+    setSelectedDrones(new Set());
+    setPreviewOpen(false);
+    mapCanvasRef.current = null;
+  }, [idsKey]);
+
+  /* Сонгосон чөлөөлөлтүүдийн нэрийг гарчигт (сонгосон дарааллаар). Хэрэглэгч
+     гарчгийг гараар засаагүй үед л. Бүгдийг хасвал гарчиг хоосон болно. */
+  useEffect(() => {
+    if (!acquisitionIds || titleTouched || !acqFetched) return;
+    setTitle(acqs.map((a) => a.acquisition_name?.trim()).filter(Boolean).join(", "));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [acqsKey, idsKey, acqFetched, titleTouched]);
+
   /* ── Хүрээ ба нэгж талбарын тоо/талбай (WFS) ─────────────────── */
   useEffect(() => {
+    if (!hasAcq) return;
+    // Сонголт хурдан солигдоход ХУУЧИН хариу шинэ сонголтыг дарахгүй.
+    let cancelled = false;
     const p = new URLSearchParams({
       service: "WFS", version: "1.1.0", request: "GetFeature",
       typeName: "land:v_acquisition_boundary", CQL_FILTER: acqFilter,
-      outputFormat: "application/json", propertyName: "geometry", maxFeatures: "1",
+      outputFormat: "application/json", propertyName: "geometry", maxFeatures: String(ids.length),
     });
     void fetch(GS_WFS, {
       method: "POST",
@@ -216,7 +287,7 @@ export default function PrintMapDialog({
     })
       .then((r) => r.json())
       .then((json) => {
-        const geom = json?.features?.[0]?.geometry;
+        if (cancelled) return;
         let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
         const walk = (n: unknown): void => {
           if (!Array.isArray(n)) return;
@@ -226,7 +297,7 @@ export default function PrintMapDialog({
             maxX = Math.max(maxX, x); maxY = Math.max(maxY, y);
           } else n.forEach(walk);
         };
-        walk(geom?.coordinates);
+        (json?.features ?? []).forEach((f: { geometry?: { coordinates?: unknown } }) => walk(f.geometry?.coordinates));
         if (Number.isFinite(minX)) {
           setExtent(transformExtent([minX, minY, maxX, maxY], "EPSG:4326", "EPSG:3857") as [number, number, number, number]);
         }
@@ -241,6 +312,7 @@ export default function PrintMapDialog({
     void fetch(`${GS_WFS}?${pp.toString()}`, { headers: gsAuthHeaders() })
       .then((r) => r.json())
       .then((json) => {
+        if (cancelled) return;
         const counts: Record<number, number> = {};
         let sum = 0;
         (json?.features ?? []).forEach((f: { properties?: { status?: number; acquisition_area_m2?: number } }) => {
@@ -252,14 +324,23 @@ export default function PrintMapDialog({
         setParcelsAreaM2(sum);
       })
       .catch(() => {})
-      .finally(() => setCountsLoaded(true));
+      .finally(() => {
+        if (!cancelled) setCountsLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [acqFilter]);
+
 
   /* ── Зураг авч, хуудас бүрдүүлэх ─────────────────────────────── */
   // Таних тэмдэг — ХЭРЭГЖҮҮЛЖ буй тохиргооны давхаргуудаар (ноорогоор биш).
   const buildLegend = (hidden: Set<string>, gus: Set<string>): PrintLegendItem[] => [
     // Төлөв тус бүрийн тооны ӨМНӨ — төсөл арга хэмжээний нийт нэгж талбар.
-    ...(acq ? [{ color: "", label: `Нийт нэгж талбар (${acq.parcel_count})`, total: true }] : []),
+    ...(acqs.length
+      ? [{ color: "", label: `Нийт нэгж талбар (${acqs.reduce((n, a) => n + (a.parcel_count ?? 0), 0)})`, total: true }]
+      : []),
     // Төлөвүүд БҮРТГЭЛЭЭС ирнэ (хатуу жагсаалт биш) бөгөөд хэрэглэгчийн
     // ХАССАН давхарга таних тэмдэгт гарахгүй.
     ...statusLayerDefs
@@ -357,23 +438,37 @@ export default function PrintMapDialog({
   const highlight = dirty || !started;
   /* Тоолол/мэдээлэл ирэхээс ӨМНӨ үүсгэвэл таних тэмдэг/мэдээллийн карт
      дутуу гарна — тэгээд дараа нь автоматаар дахин зурахгүй тул товчийг хүлээлгэнэ. */
-  const dataReady = !!extent && countsLoaded && acqFetched && categoriesFetched && departmentsFetched;
+  const dataReady = hasAcq && !!extent && countsLoaded && acqFetched && categoriesFetched && departmentsFetched;
 
+  /* Мэдээллийн карт — олон чөлөөлөлт бол утгуудыг НЭГТГЭНЭ: текстийг
+     давхардалгүй жагсааж, талбайг нэмж, гүйцэтгэлийг нэгж талбарын тоогоор жигнэнэ. */
   const info = useMemo<PrintInfo>(() => {
-    const cat = categories.find((c) => c.id === acq?.general_category_id);
-    const dept = departments.find((d) => String(d.id) === String(cat?.department_id ?? ""));
+    const uniq = (xs: (string | undefined | null)[], sep = ", ") =>
+      Array.from(new Set(xs.map((x) => x?.trim()).filter((x): x is string => !!x))).join(sep) || undefined;
+    const depts = acqs
+      .map((a) => {
+        const cat = categories.find((c) => c.id === a.general_category_id);
+        return departments.find((d) => String(d.id) === String(cat?.department_id ?? ""));
+      })
+      .filter((d): d is NonNullable<typeof d> => !!d);
+    const parcelTotal = acqs.reduce((n, a) => n + (a.parcel_count ?? 0), 0);
+    const progress = acqs.length
+      ? parcelTotal > 0
+        ? acqs.reduce((n, a) => n + (a.progress_percent ?? 0) * (a.parcel_count ?? 0), 0) / parcelTotal
+        : acqs.reduce((n, a) => n + (a.progress_percent ?? 0), 0) / acqs.length
+      : 0;
     return {
-      planCode: acq?.plan_code,
-      planName: acq?.plan_name,
-      nithDecreeNumber: acq?.nith_decree_number,
-      acquisitionAreaM2: acq?.area_m2,
+      planCode: uniq(acqs.map((a) => a.plan_code)),
+      planName: uniq(acqs.map((a) => a.plan_name), "; "),
+      nithDecreeNumber: uniq(acqs.map((a) => a.nith_decree_number)),
+      acquisitionAreaM2: acqs.length ? acqs.reduce((n, a) => n + (a.area_m2 ?? 0), 0) : undefined,
       parcelsAreaM2,
       orgName: "Нийслэлийн газар зохион байгуулалтын алба",
       logo: logoRef.current,
-      departmentName: dept?.name,
-      departmentCode: dept?.code,
-      statusName: acq ? STATUS_LABELS[acq.status] : undefined,
-      progressPercent: acq?.progress_percent ?? 0,
+      departmentName: uniq(depts.map((d) => d.name)),
+      departmentCode: uniq(depts.map((d) => d.code)),
+      statusName: uniq(acqs.map((a) => STATUS_LABELS[a.status])),
+      progressPercent: Math.round(progress),
       progressBreakdown: statusLayerDefs
         .map((d) => ({
           color: d.color,
@@ -381,21 +476,26 @@ export default function PrintMapDialog({
           count: statusCounts[parcelStatusIdFromLayer(d.id) ?? -1] ?? 0,
         }))
         .filter((sl) => sl.count > 0),
-      specialists: (acq?.assigned_users ?? []).map((u) => u.user_name).filter(Boolean),
+      specialists: Array.from(
+        new Set(acqs.flatMap((a) => (a.assigned_users ?? []).map((u) => u.user_name)).filter(Boolean)),
+      ),
     };
-  }, [acq, categories, departments, parcelsAreaM2, statusCounts, statusLayerDefs]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [acqsKey, categories, departments, parcelsAreaM2, statusCounts, statusLayerDefs]);
 
   /* ӨМЧЛӨГЧИЙН ШОШГО — ЭЦСИЙН БУС төлөвтэй нэгж талбарууд дээр.
      Нэр нь GeoServer-ийн view-д байхгүй тул backend-ийн жагсаалтаас
      (holder_name), геометр нь WFS-ээс; parcel_id-аар холбоно. */
   const loadOwnerLabels = async (hidden: Set<string>) => {
     const names = new Map<string, string>();
-    for (let page = 1; ; page++) {
-      const res = await landApi.getParcels(acquisitionId, { page, page_size: OWNER_PAGE_SIZE });
-      (res.data ?? []).forEach((p) => {
-        if (p.holder_name?.trim()) names.set(p.parcel_id, p.holder_name.trim());
-      });
-      if (page >= (res.total_pages ?? 1) || !(res.data ?? []).length) break;
+    for (const id of ids) {
+      for (let page = 1; ; page++) {
+        const res = await landApi.getParcels(id, { page, page_size: OWNER_PAGE_SIZE });
+        (res.data ?? []).forEach((p) => {
+          if (p.holder_name?.trim()) names.set(p.parcel_id, p.holder_name.trim());
+        });
+        if (page >= (res.total_pages ?? 1) || !(res.data ?? []).length) break;
+      }
     }
 
     const q = new URLSearchParams({
@@ -500,7 +600,7 @@ export default function PrintMapDialog({
     /* Хилийг ДЭЭД хэсэгт: доод зурвасыг таних тэмдэг/мэдээллийн карт эзэлнэ. */
     const a = printMapAreaSizePx(orientation, paper);
     const cover = a.width / mapW; // өргөн/өндөр ижил харьцаатай тул нэг утга
-    const band = printInfoBandPx() / cover;
+    const band = printInfoBandPx(orientation) / cover;
     const usableH = Math.max(mapH * 0.35, mapH - band);
     const PAD = 1.06;
     const resolution = Math.max(((ext[2] - ext[0]) * PAD) / mapW, ((ext[3] - ext[1]) * PAD) / usableH);
@@ -531,7 +631,7 @@ export default function PrintMapDialog({
         if (!b) return;
         layers.push({
           kind: "xyz",
-          urls: [droneTileUrl(acquisitionId, img.id)],
+          urls: [droneTileUrl(img.acqId, img.id)],
           maxZoom: GS_GWC_MAX_ZOOM,
           clipExtent: transformExtent(b, "EPSG:4326", "EPSG:3857") as [number, number, number, number],
         });
@@ -626,6 +726,7 @@ export default function PrintMapDialog({
     };
     const prev = applied;
     setApplied(next);
+    if (embedded) setPreviewOpen(true);
     if (prev && mapCanvasRef.current && !error && sameMapSettings(prev, next)) {
       compose(mapCanvasRef.current, next, viewInfoRef.current);
     } else {
@@ -633,38 +734,76 @@ export default function PrintMapDialog({
     }
   };
 
+  useEffect(() => {
+    if (!previewOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setPreviewOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [previewOpen]);
+
   const download = () => {
     if (!pageCanvas || !applied) return;
     const name = applied.title.trim().replace(/\s+/g, "_").slice(0, 80) || "gazriin_zurag";
     void downloadCanvasAsPdf(pageCanvas, applied.orientation, name, applied.paper);
   };
 
+  const generateButton = (
+    <button
+      type="button"
+      onClick={generate}
+      disabled={busy || !dataReady}
+      className={`flex items-center gap-1.5 rounded-lg border font-semibold transition-colors disabled:opacity-50 ${
+        embedded ? "h-9 px-5 text-[12.5px]" : "h-8 px-3 text-[12px]"
+      } ${
+        highlight
+          ? "border-[#02c0ce] bg-[#02c0ce] text-white hover:bg-[#02aab6]"
+          : "border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-[#37394d] dark:text-slate-300 dark:hover:bg-[#252630]"
+      }`}
+    >
+      <RefreshCw className={`h-3.5 w-3.5 ${busy ? "animate-spin" : ""}`} />
+      {started ? "Шинээр үүсгэх" : "Зураг үүсгэх"}
+    </button>
+  );
+
   const selectCls =
     "h-8 rounded-lg border border-slate-200 bg-white px-2 text-[12px] text-slate-700 outline-none focus:border-[#02c0ce] dark:border-[#37394d] dark:bg-[#1e1f27] dark:text-slate-200";
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+    <div className={embedded ? "w-full" : "fixed inset-0 z-[70] flex items-center justify-center p-4"}>
+      {!embedded && <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />}
 
-
-      <div className="relative flex h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-[#1e1f27]">
-        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3.5 dark:border-[#37394d]">
-          <p className="text-[14px] font-bold text-slate-800 dark:text-white">Ажлын зураг</p>
-          <button
-            onClick={onClose}
-            className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 dark:hover:bg-[#252630]"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
+      <div
+        className={
+          embedded
+            ? "relative flex w-full flex-col rounded-2xl bg-white dark:bg-[#1e1f27]"
+            : "relative flex h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-[#1e1f27]"
+        }
+      >
+        {!embedded && (
+          <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3.5 dark:border-[#37394d]">
+            <p className="text-[14px] font-bold text-slate-800 dark:text-white">Ажлын зураг</p>
+            <button
+              onClick={onClose}
+              className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 dark:hover:bg-[#252630]"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        )}
 
         <div className="space-y-3 border-b border-slate-100 px-5 py-3 dark:border-[#37394d]">
+          {selector}
           <div className="flex flex-wrap items-end gap-3">
             <div className="min-w-[220px] flex-1">
               <label className="mb-1 block text-[11px] font-semibold text-slate-500 dark:text-slate-400">Гарчиг</label>
               <input
                 value={title}
-                onChange={(e) => setTitle(e.target.value)}
+                onChange={(e) => {
+                  setTitle(e.target.value);
+                  setTitleTouched(true);
+                }}
                 placeholder="Гарчиг оруулах..."
                 className="h-8 w-full rounded-lg border border-slate-200 bg-white px-3 text-[12px] text-slate-700 outline-none focus:border-[#02c0ce] dark:border-[#37394d] dark:bg-[#1e1f27] dark:text-slate-200"
               />
@@ -839,34 +978,40 @@ export default function PrintMapDialog({
           {/* ЗУРАГ ҮҮСГЭХ — цонх нээгдэхэд зураг бэлдэхгүй, эхний болон
               дараачийн бүх үүсгэлтийг ЭНЭ товч эхлүүлнэ. Алдаа гарсан үед
               ДАХИН ОРОЛДОХ гарц ч болно (өөрчлөлтгүй үед ч идэвхтэй). */}
-          <div className="flex items-center justify-end gap-2">
-            {started && dirty && (
-              <span className="text-[11px] text-amber-600 dark:text-amber-400">
-                Сонголт өөрчлөгдсөн — зургийг шинэчилнэ үү
-              </span>
-            )}
-            {!dataReady && (
-              <span className="text-[11px] text-slate-400">
-                {!extent ? "Чөлөөлөлтийн хил ачаалж байна..." : "Мэдээлэл ачаалж байна..."}
-              </span>
-            )}
-            <button
-              type="button"
-              onClick={generate}
-              disabled={busy || !dataReady}
-              className={`flex h-8 items-center gap-1.5 rounded-lg border px-3 text-[12px] font-semibold transition-colors disabled:opacity-50 ${
-                highlight
-                  ? "border-[#02c0ce] bg-[#02c0ce] text-white hover:bg-[#02aab6]"
-                  : "border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-[#37394d] dark:text-slate-300 dark:hover:bg-[#252630]"
-              }`}
+          {/* Чөлөөлөлт сонгоогүй үед товч ба тайлбар бүхэлдээ НУУГДАНА.
+              «Хэвлэх» хуудсан дээр товч ГОЛДОО, тайлбар нь доороо. */}
+          {hasAcq && (
+            <div
+              className={
+                embedded
+                  ? "flex flex-col items-center justify-center gap-1.5 pt-1"
+                  : "flex items-center justify-end gap-2"
+              }
             >
-              <RefreshCw className={`h-3.5 w-3.5 ${busy ? "animate-spin" : ""}`} />
-              {started ? "Шинээр үүсгэх" : "Зураг үүсгэх"}
-            </button>
-          </div>
+              {embedded && generateButton}
+              {started && dirty && (
+                <span className="text-[11px] text-amber-600 dark:text-amber-400">
+                  Сонголт өөрчлөгдсөн — зургийг шинэчилнэ үү
+                </span>
+              )}
+              {!dataReady && (
+                <span className="text-[11px] text-slate-400">
+                  {!extent ? "Чөлөөлөлтийн хил ачаалж байна..." : "Мэдээлэл ачаалж байна..."}
+                </span>
+              )}
+              {!embedded && generateButton}
+            </div>
+          )}
         </div>
 
-        <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-auto bg-slate-100 p-4 dark:bg-[#15161c]">
+        <div
+          /* «Хэвлэх» хуудас — ТОГТМОЛ өндөр (хуудас өөрөө доош гүйлгэгдэнэ).
+             flex-1 + min-h-0 нь эцэг элементийн өндрөөр шахагдаж намхан
+             гардаг байв. Тогтмол өндөртэй тул зургийн max-h-full ажиллана. */
+          className={`relative flex items-center justify-center overflow-auto bg-slate-100 p-4 dark:bg-[#15161c] ${
+            embedded ? "h-[85vh] min-h-[480px]" : "min-h-0 flex-1"
+          }`}
+        >
           {/* Урьдчилан харах нь ХЭВЛЭГДЭХ ЯГ ТЭР зураг — өөр газрын зураг
               байхгүй тул "дэлгэц дээр өөр, хэвлэхэд өөр" гэсэн зөрүү үүсэхгүй. */}
           {dataUrl && (
@@ -879,8 +1024,9 @@ export default function PrintMapDialog({
             <img
               src={dataUrl}
               alt="Ажлын зураг"
-              className="max-h-full max-w-full rounded object-contain shadow"
+              className={`max-h-full max-w-full rounded object-contain shadow ${embedded ? "cursor-zoom-in" : ""}`}
               style={{ opacity: busy ? 0.35 : 1 }}
+              onClick={embedded ? () => setPreviewOpen(true) : undefined}
             />
           )}
           {busy && (
@@ -896,7 +1042,11 @@ export default function PrintMapDialog({
                 Ажлын зураг бэлдээгүй байна
               </p>
               <p className="max-w-sm text-[11px]">
-                Цаас, чиглэл, давхаргаа сонгоод <strong>&laquo;Зураг үүсгэх&raquo;</strong> дарна уу.
+                {hasAcq ? (
+                  <>Цаас, чиглэл, давхаргаа сонгоод <strong>&laquo;Зураг үүсгэх&raquo;</strong> дарна уу.</>
+                ) : (
+                  <>Хэвлэх чөлөөлөлтөө (1–{PRINT_MAX_ACQUISITIONS}) нэмнэ үү.</>
+                )}
               </p>
             </div>
           )}
@@ -916,23 +1066,151 @@ export default function PrintMapDialog({
           )}
         </div>
 
-        <div className="flex items-center justify-end gap-2 border-t border-slate-100 px-5 py-3 dark:border-[#37394d]">
+        {/* Зураг бэлдээгүй бол «Татах» НУУГДАНА. «Хэвлэх» хуудсан дээр өөр товч
+            байхгүй тул хөлийн мөр бүхэлдээ нуугдана. */}
+        {(!embedded || dataUrl) && (
+          <div className="flex items-center justify-end gap-2 border-t border-slate-100 px-5 py-3 dark:border-[#37394d]">
+            {!embedded && (
+              <button
+                onClick={onClose}
+                className="h-9 rounded-lg px-4 text-[12.5px] font-semibold text-slate-500 transition-colors hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-[#252630]"
+              >
+                Хаах
+              </button>
+            )}
+            {dataUrl && (
+              <button
+                onClick={download}
+                disabled={busy}
+                className="flex h-9 items-center gap-1.5 rounded-lg bg-[#02c0ce] px-4 text-[12.5px] font-semibold text-white transition-colors hover:bg-[#02aab6] disabled:opacity-50"
+              >
+                <Download className="h-3.5 w-3.5" />
+                Татах
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {embedded && previewOpen && applied && (
+        <PreviewModal
+          orientation={applied.orientation}
+          paper={applied.paper}
+          title={applied.title}
+          dataUrl={dataUrl}
+          busy={busy}
+          error={error}
+          onClose={() => setPreviewOpen(false)}
+          onDownload={download}
+        />
+      )}
+    </div>
+  );
+}
+
+/* Хуудасны харьцаа (A цуврал = √2). Цонхны хүрээг үүгээр тогтоовол зураг
+   ирэхээс өмнө ч (ачаалж байх үед) хэвтээ/босоо ялгаатай харагдана. */
+const PAGE_RATIO = Math.SQRT2;
+// Толгой + хөлийн мөрийн өндөр — зургийн талбайг дэлгэцийн өндөрт багтаана.
+const MODAL_CHROME = "96px";
+
+function PreviewModal({
+  orientation,
+  paper,
+  title,
+  dataUrl,
+  busy,
+  error,
+  onClose,
+  onDownload,
+}: {
+  orientation: PrintOrientation;
+  paper: PrintPaperSize;
+  title: string;
+  dataUrl: string | null;
+  busy: boolean;
+  error: string | null;
+  onClose: () => void;
+  onDownload: () => void;
+}) {
+  const ratio = orientation === "landscape" ? PAGE_RATIO : 1 / PAGE_RATIO;
+  // Зургийн өргөн — дэлгэцийн өргөн БА өндрийн аль бага нь хязгаарлана:
+  // хэвтээ нь өргөн, босоо нь өндөр/нарийн. Цонх энэ өргөнийг л дагана.
+  const width = `min(96vw, calc((97vh - ${MODAL_CHROME}) * ${ratio}))`;
+
+  /* body руу PORTAL — хуудасны контентын эцэг элементүүдийн transform/blur
+     нь `fixed`-ийг ДЭЛГЭЦИЙН биш тэр элементийн хүрээнд байрлуулж, цонх
+     төвөөсөө зөрдөг байв. */
+  return createPortal(
+    <div className="fixed inset-0 z-[80] flex items-center justify-center p-2">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      {/* Цонхны өргөн УЯН ХАТАН — зөвхөн ЗУРАГ өөрөө тогтооно. Толгой/хөлийн
+          мөрүүд `w-0 min-w-full` тул өргөнд нөлөөлөхгүй, зургийн өргөнд
+          багтаж тайрагдана (урт гарчиг цонхыг өргөсгөж, зургийг зүүн тийш
+          шахдаг байв). */}
+      <div className="relative flex max-h-[98vh] max-w-[96vw] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-[#1e1f27]">
+        <div className="flex w-0 min-w-full items-center justify-between gap-3 border-b border-slate-100 px-4 py-2.5 dark:border-[#37394d]">
+          <div className="flex min-w-0 items-center gap-2">
+            <p className="truncate text-[13.5px] font-bold text-slate-800 dark:text-white">{title.trim() || "Ажлын зураг"}</p>
+            <span className="shrink-0 rounded-md bg-slate-100 px-1.5 py-0.5 text-[10.5px] font-semibold text-slate-500 dark:bg-[#252630] dark:text-slate-400">
+              {paper} · {orientation === "landscape" ? "Хэвтээ" : "Босоо"}
+            </span>
+          </div>
           <button
             onClick={onClose}
-            className="h-9 rounded-lg px-4 text-[12.5px] font-semibold text-slate-500 transition-colors hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-[#252630]"
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 dark:hover:bg-[#252630]"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div
+          className="relative flex shrink-0 items-center justify-center bg-slate-100 dark:bg-[#15161c]"
+          style={{ width, aspectRatio: String(ratio) }}
+        >
+          {dataUrl && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={dataUrl}
+              alt="Ажлын зураг"
+              className="block max-h-full max-w-full object-contain object-center"
+              style={{ opacity: busy ? 0.35 : 1 }}
+            />
+          )}
+          {busy && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-slate-500">
+              <Loader2 className="h-6 w-6 animate-spin" />
+              <span className="text-[12px]">Газрын зураг бэлдэж байна...</span>
+            </div>
+          )}
+          {!busy && error && (
+            <div className="absolute inset-4 flex flex-col items-center justify-center gap-2 rounded-lg border border-red-200 bg-red-50 p-4 text-center dark:border-red-500/40 dark:bg-red-500/10">
+              <p className="text-[12.5px] font-semibold text-red-600 dark:text-red-400">
+                Газрын зургийн давхарга ачаалагдсангүй
+              </p>
+              <p className="max-w-lg break-words text-[11px] text-red-500/90 dark:text-red-300/80">{error}</p>
+            </div>
+          )}
+        </div>
+
+        <div className="flex w-0 min-w-full items-center justify-end gap-2 border-t border-slate-100 px-4 py-2.5 dark:border-[#37394d]">
+          <button
+            onClick={onClose}
+            className="h-8 rounded-lg px-4 text-[12.5px] font-semibold text-slate-500 transition-colors hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-[#252630]"
           >
             Хаах
           </button>
           <button
-            onClick={download}
+            onClick={onDownload}
             disabled={!dataUrl || busy}
-            className="flex h-9 items-center gap-1.5 rounded-lg bg-[#02c0ce] px-4 text-[12.5px] font-semibold text-white transition-colors hover:bg-[#02aab6] disabled:opacity-50"
+            className="flex h-8 items-center gap-1.5 rounded-lg bg-[#02c0ce] px-4 text-[12.5px] font-semibold text-white transition-colors hover:bg-[#02aab6] disabled:opacity-50"
           >
             <Download className="h-3.5 w-3.5" />
             Татах
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
